@@ -1,5 +1,6 @@
 from extensions import db
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
 
 
 # Department Table
@@ -9,7 +10,8 @@ class Department(db.Model):
 
     id          = db.Column(db.Integer, primary_key=True)
     name        = db.Column(db.String(100), unique=True, nullable=False)
-    description = db.Column(db.String(255))
+    head        = db.Column(db.String(100))
+    status      = db.Column(db.String(20), default="Active")
 
     doctors = db.relationship("Doctor", backref="department", lazy=True)
 
@@ -27,13 +29,28 @@ class Doctor(db.Model):
     specialization = db.Column(db.String(100))
     email          = db.Column(db.String(120))
     phone          = db.Column(db.String(20))
-    availability   = db.Column(db.String(100))
     status         = db.Column(db.String(20), default="available")
+    
 
     department_id = db.Column(
         db.Integer,
         db.ForeignKey("departments.id")
     )
+
+    password_hash = db.Column(db.String(255))
+    password_set = db.Column(db.Boolean, default=False)
+    set_password_token = db.Column(db.String(255), nullable=True)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+        self.password_set = True
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    @property
+    def role(self):
+        return "doctor"
 
     # ✅ Alias so old code using Doctor.dept_id still works
     dept_id = db.synonym("department_id")
@@ -44,7 +61,7 @@ class Doctor(db.Model):
         return f"<Doctor {self.name}>"
 
 
-# DoctorSchedule Table — WAS MISSING FROM YOUR models.py, NOW ADDED
+# DoctorSchedule Table
 class DoctorSchedule(db.Model):
 
     __tablename__ = "doctor_schedules"
@@ -64,6 +81,26 @@ class DoctorSchedule(db.Model):
 
     def __repr__(self):
         return f"<DoctorSchedule doctor={self.doctor_id} {self.day_of_week} {self.work_type}>"
+
+
+class DoctorAvailability(db.Model):
+
+    __tablename__ = "doctor_availability"
+
+    id = db.Column(db.Integer, primary_key=True)
+    doctor_id = db.Column(
+        db.Integer,
+        db.ForeignKey("doctors.id"),
+        nullable=False,
+    )
+    date = db.Column(db.Date, nullable=False)
+    is_available = db.Column(db.Boolean, default=True, nullable=False)
+
+    doctor = db.relationship("Doctor", backref="availability_entries")
+
+    __table_args__ = (
+        db.UniqueConstraint("doctor_id", "date", name="uq_doctor_availability_day"),
+    )
 
 
 class Prescription(db.Model):

@@ -41,8 +41,7 @@ function getErrorMessage(err, fallback) {
 
 function redirectToLoginIfUnauthorized(err) {
   if (err?.response?.status === 401) {
-    localStorage.removeItem('isLoggedIn')
-    window.location.href = '/login'
+    // Interceptor in services/interceptor.js handles the actually logout logic and redirect
     return true
   }
   return false
@@ -401,7 +400,22 @@ const showProfileModal = ref(false)
 
 async function doLogout() {
   await api.post('/api/logout')
+  localStorage.removeItem('token')
+  localStorage.removeItem('isLoggedIn')
+  localStorage.removeItem('role')
+  localStorage.removeItem('name')
   window.location.href = '/login'
+}
+
+async function handleDownload(type) {
+  try {
+    if (type === 'pdf') await downloadReportPdf()
+    else await downloadReport()
+    showToast('Download started successfully')
+  } catch (err) {
+    if (redirectToLoginIfUnauthorized(err)) return
+    showToast(getErrorMessage(err, 'Download failed. Please try again.'))
+  }
 }
 
 // ─── Lifecycle ─────────────────────────────────────────────────────────────
@@ -712,10 +726,10 @@ onMounted(() => {
             <i class="bi bi-file-earmark-text" style="color:var(--green)"></i>
             <h4>Medical Report</h4>
             <p>Human-readable full report with appointments, prescriptions, and notes.</p>
-            <button class="btn btn-primary" style="margin-top:4px" @click="downloadReport()">
+            <button class="btn btn-primary" style="margin-top:4px" @click="handleDownload('text')">
               <i class="bi bi-download"></i> Download Report
             </button>
-            <button class="btn btn-ghost" style="margin-top:8px" @click="downloadReportPdf()">
+            <button class="btn btn-ghost" style="margin-top:8px" @click="handleDownload('pdf')">
               <i class="bi bi-filetype-pdf"></i> Download PDF
             </button>
           </div>

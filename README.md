@@ -35,6 +35,11 @@ Backend uses environment variables (see `backend/.env.example`):
 - `HMS_SESSION_SECURE`
 - `HMS_SESSION_SAMESITE`
 - `FLASK_DEBUG`
+- `HMS_FRONTEND_URL`
+- `HMS_SMTP_HOST`
+- `HMS_SMTP_PORT`
+- `HMS_SMTP_USER` (default: `hmsproject26@gmail.com`)
+- `HMS_SMTP_APP_PASSWORD` (16-character Gmail app password)
 
 Frontend build:
 ```powershell

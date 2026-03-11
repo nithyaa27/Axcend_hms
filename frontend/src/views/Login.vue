@@ -1,47 +1,165 @@
 <template>
-  <div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif">
-    <div style="border:1px solid #ccc;padding:2rem;border-radius:8px;width:300px">
-      <h2>HMS Login</h2>
-      <p v-if="error" style="color:red">{{ error }}</p>
-      <div>
-        <label>Email</label><br/>
-        <input v-model="email" type="email" style="width:100%;padding:8px;margin:6px 0 12px;box-sizing:border-box" />
+  <div class="container-fluid min-vh-100 d-flex align-items-center justify-content-center ff">
+    <div class="card p-4" style="width: 450px;height:500px ">
+      <div class="text-center mb-4">
+        <div class="logo-icon-container">
+          <i class="bi bi-activity"></i>
+        </div>
       </div>
-      <div>
-        <label>Password</label><br/>
-        <input v-model="password" type="password" style="width:100%;padding:8px;margin:6px 0 12px;box-sizing:border-box" />
+
+      <h3 class="text-center text-dark fw-bolder mb-3">Hospital Management System</h3>
+      <p class="text-secondary text-center">Sign in to your account to continue</p>
+
+      <form @submit.prevent="login">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Email</label>
+          <input
+            type="email"
+            placeholder="Enter your Email"
+            class="form-control input-soft border custom-input"
+            v-model="email"
+            required
+          />
+        </div>
+
+        <div class="mb-1 d-flex justify-content-between">
+          <label class="form-label fw-semibold">Password</label>
+          <router-link to="/forgot" class="text-decoration-none">Forgot Password?</router-link>
+        </div>
+        <div class="mb-4 password-wrap">
+          <input
+            :type="showPassword ? 'text' : 'password'"
+            placeholder="Enter your Password"
+            class="form-control form-control-lg input-soft border"
+            v-model="password"
+            required
+          />
+          <button type="button" class="toggle-eye" @click="showPassword = !showPassword">
+            <i :class="showPassword ? 'bi bi-eye-slash' : 'bi bi-eye'"></i>
+          </button>
+        </div>
+
+        <button type="submit" class="btn btn-dark w-100 btn-lg">
+          Sign In
+        </button>
+      </form>
+
+      <div class="divider my-3 text-center text-muted">
+        <span>Or continue with</span>
       </div>
-      <button @click="login" style="width:100%;padding:10px;background:#4f46e5;color:white;border:none;border-radius:6px;cursor:pointer">
-        Login
-      </button>
+
+      <p class="text-center">
+        Don’t have an account?
+        <router-link to="/register" class="text-decoration-none fw-semibold">
+          Register as Patient
+        </router-link>
+      </p>
+
+      <p v-if="error" class="text-danger text-center mt-1">{{ error }}</p>
     </div>
   </div>
 </template>
 
-<script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import api from '../api/api'
+<script>
+import api from "@/services/interceptor"
 
-const email    = ref('')
-const password = ref('')
-const error    = ref('')
-const router   = useRouter()
-
-async function login() {
-  try {
-    const res = await api.post('/api/login', {
-      email:    email.value,
-      password: password.value
-    })
-    if (res.data.status === 'success') {
-         localStorage.setItem('isLoggedIn', 'true')
-      router.push('/patient')
-    } else {
-      error.value = res.data.message || 'Login failed'
+export default {
+  name: "Login",
+  data() {
+    return {
+      email: "",
+      password: "",
+      showPassword: false,
+      error: ""
     }
-  } catch (e) {
-    error.value = 'Login failed. Check credentials.'
+  },
+  methods: {
+    login() {
+      this.error = ""
+      api
+        .post("/auth/login", {
+          email: this.email,
+          password: this.password
+        })
+        .then(res => {
+          localStorage.setItem("token", res.data.token || "")
+          localStorage.setItem("role", res.data.role || "patient")
+          localStorage.setItem("name", res.data.name || "")
+          localStorage.setItem("userId", res.data.id || "")
+          localStorage.setItem("doctorId", res.data.doctor_id || "")
+          localStorage.setItem("isLoggedIn", "true")
+
+          if (res.data.redirect_to) {
+            this.$router.push(res.data.redirect_to)
+          } else if (res.data.role === "admin") {
+            this.$router.push("/admin")
+          } else if (res.data.role === "doctor") {
+            this.$router.push("/doctor")
+          } else {
+            this.$router.push("/patient")
+          }
+        })
+        .catch(err => {
+          if (err.response && err.response.status === 401) {
+            this.error = "Invalid email or password"
+          } else if (!err.response) {
+            this.error = "Backend is not reachable. Start backend on port 5000."
+          } else {
+            this.error = err.response?.data?.message || err.response?.data?.error || "Server error. Try again."
+          }
+        })
+    }
   }
 }
 </script>
+
+<style scoped>
+.ff{
+  font-family: 'Poppins', sans-serif;
+}
+.input-soft::placeholder {
+  color: #a8a7a7;
+  font-size: 16px;
+}
+.input-soft {
+  background-color: #f3f4f6;
+  border: none;
+  border-radius: 10px;
+  padding: 11px 13px;
+}
+.password-wrap {
+  position: relative;
+}
+.toggle-eye {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.form-control:focus {
+  border-color: #9ca3af;
+  box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.2);
+}
+input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #eeefef inset !important;
+  -webkit-text-fill-color: #000 !important;
+}
+.divider {
+  position: relative;
+}
+.logo-icon-container {
+  width: 50px;
+  height: 50px;
+  background: #2563eb;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 26px;
+  margin: 0 auto;
+}
+</style>

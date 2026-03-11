@@ -2,8 +2,7 @@ import io
 import json
 import re
 from collections import OrderedDict
-from flask import Response, Blueprint, request, jsonify
-from flask_login import login_required, current_user
+from flask import Response, Blueprint, request, jsonify, g
 from datetime import datetime, timedelta
 
 from extensions import db
@@ -16,8 +15,10 @@ dashboard_bp = Blueprint("dashboard_bp", __name__)
 DAILY_BOOKING_LIMIT = 3
 
 @dashboard_bp.before_request
-@login_required
 def require_login_for_dashboard_api():
+    if not g.user:
+        msg = getattr(g, "auth_error", "Authentication required")
+        return jsonify({"message": msg}), 401
     return None
 
 
@@ -399,7 +400,7 @@ def _build_report_lines(patient, appointments, prescriptions, generated_at):
 
 def get_dashboard_data():
     now  = datetime.now()
-    apts = Appointment.query.filter_by(patient_id=current_user.id).all()
+    apts = Appointment.query.filter_by(patient_id=g.user.id).all()
 
     total     = len(apts)
     upcoming  = sum(1 for a in apts if a.status == AppointmentStatus.BOOKED    and a.appointment_datetime >= now)
@@ -415,10 +416,10 @@ def get_dashboard_data():
             "cancelled":    cancelled,
         },
         "patient": {
-            "patient_uid": current_user.patient_uid,
-            "name":        current_user.name,
-            "email":       current_user.email,
-            "gender":      current_user.gender,
+            "patient_uid": g.user.patient_uid,
+            "name":        g.user.name,
+            "email":       g.user.email,
+            "gender":      g.user.gender,
         }
     })
 
@@ -431,7 +432,7 @@ def get_dashboard_data():
 def list_appointments():
     tab = request.args.get("tab", "upcoming")
     now = datetime.now()
-    base = Appointment.query.filter_by(patient_id=current_user.id)
+    base = Appointment.query.filter_by(patient_id=g.user.id)
 
     if tab == "upcoming":
         apts = (base
@@ -506,7 +507,7 @@ def book_appointment():
 
     # Rule 3: Patient already has appointment at same time
     patient_time_clash = Appointment.query.filter_by(
-        patient_id           = current_user.id,
+        patient_id           = g.user.id,
         appointment_datetime = apt_dt,
         status               = AppointmentStatus.BOOKED
     ).first()
@@ -517,7 +518,7 @@ def book_appointment():
     day_start = apt_dt.replace(hour=0,  minute=0,  second=0,  microsecond=0)
     day_end   = apt_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
     daily_count = Appointment.query.filter(
-        Appointment.patient_id           == current_user.id,
+        Appointment.patient_id           == g.user.id,
         Appointment.status               == AppointmentStatus.BOOKED,
         Appointment.appointment_datetime >= day_start,
         Appointment.appointment_datetime <= day_end
@@ -527,7 +528,7 @@ def book_appointment():
         return jsonify({"status": "error", "message": f"Maximum {DAILY_BOOKING_LIMIT} appointments per day allowed."}), 429
 
     new_apt = Appointment(
-        patient_id           = current_user.id,
+        patient_id           = g.user.id,
         doctor_id            = doc.id,
         appointment_datetime = apt_dt,
         status               = AppointmentStatus.BOOKED,
@@ -547,7 +548,7 @@ def book_appointment():
 @dashboard_bp.route("/api/appointments/<int:apt_id>", methods=["GET"])
 
 def get_appointment(apt_id):
-    apt = Appointment.query.filter_by(id=apt_id, patient_id=current_user.id).first_or_404()
+    apt = Appointment.query.filter_by(id=apt_id, patient_id=g.user.id).first_or_404()
     dt  = apt.appointment_datetime
     derived = _derive_appointment_state(apt, datetime.now())
     return jsonify({
@@ -577,7 +578,7 @@ def get_appointment(apt_id):
 @dashboard_bp.route("/api/appointments/<int:apt_id>/cancel", methods=["POST"])
 
 def cancel_appointment(apt_id):
-    apt = Appointment.query.filter_by(id=apt_id, patient_id=current_user.id).first_or_404()
+    apt = Appointment.query.filter_by(id=apt_id, patient_id=g.user.id).first_or_404()
 
     if apt.status != AppointmentStatus.BOOKED:
         return jsonify({"status": "error", "message": f"Cannot cancel a '{apt.status}' appointment"}), 400
@@ -599,7 +600,7 @@ def cancel_appointment(apt_id):
 @dashboard_bp.route("/api/appointments/<int:apt_id>/reschedule", methods=["PUT"])
 
 def reschedule_appointment(apt_id):
-    apt = Appointment.query.filter_by(id=apt_id, patient_id=current_user.id).first_or_404()
+    apt = Appointment.query.filter_by(id=apt_id, patient_id=g.user.id).first_or_404()
 
     if apt.status != AppointmentStatus.BOOKED:
         return jsonify({"status": "error", "message": "Only booked appointments can be rescheduled"}), 400
@@ -668,8 +669,8 @@ def find_doctors():
             Appointment.appointment_datetime >= now,
         ).count()
 
-        avail_raw = (doc.availability or doc.status or "").strip().lower()
-        is_available = avail_raw in {"available", "yes", "true", "1"}
+        status_raw = (doc.status or "").strip().lower()
+        is_available = status_raw in {"available", "yes", "true", "1", "active"}
 
         result.append({
             "id":             doc.id,
@@ -721,7 +722,7 @@ def doctor_slots(doctor_id):
     patient_booked = {
         a.appointment_datetime.strftime("%I:%M %p").lstrip("0")
         for a in Appointment.query.filter(
-            Appointment.patient_id == current_user.id,
+            Appointment.patient_id == g.user.id,
             Appointment.status     == AppointmentStatus.BOOKED,
             db.func.date(Appointment.appointment_datetime) == target.isoformat()
         ).all()
@@ -730,7 +731,7 @@ def doctor_slots(doctor_id):
     day_start = datetime.combine(target, datetime.min.time())
     day_end   = datetime.combine(target, datetime.max.time())
     daily_count = Appointment.query.filter(
-        Appointment.patient_id           == current_user.id,
+        Appointment.patient_id           == g.user.id,
         Appointment.status               == AppointmentStatus.BOOKED,
         Appointment.appointment_datetime >= day_start,
         Appointment.appointment_datetime <= day_end
@@ -803,7 +804,7 @@ def doctor_slots(doctor_id):
 @dashboard_bp.route("/api/prescriptions", methods=["GET"])
 def list_prescriptions():
     rows = (Prescription.query
-            .filter_by(patient_id=current_user.id)
+            .filter_by(patient_id=g.user.id)
             .order_by(Prescription.prescribed_at.desc())
             .all())
     return jsonify({"status": "success", "prescriptions": [_serialize_prescription(p) for p in rows]})
@@ -811,7 +812,7 @@ def list_prescriptions():
 
 @dashboard_bp.route("/api/prescriptions/<int:prescription_id>", methods=["GET"])
 def get_prescription_detail(prescription_id):
-    p = Prescription.query.filter_by(id=prescription_id, patient_id=current_user.id).first_or_404()
+    p = Prescription.query.filter_by(id=prescription_id, patient_id=g.user.id).first_or_404()
     return jsonify({"status": "success", "prescription": _serialize_prescription(p)})
 
 
@@ -821,7 +822,7 @@ def get_prescription_detail(prescription_id):
 @dashboard_bp.route("/api/download_report")
 
 def download_report():
-    p    = current_user
+    p    = g.user
     now  = datetime.now()
     apts = (Appointment.query
             .filter_by(patient_id=p.id)
@@ -849,7 +850,7 @@ def download_report():
 # ─────────────────────────────────────────
 @dashboard_bp.route("/api/download_report_pdf")
 def download_report_pdf():
-    p    = current_user
+    p    = g.user
     now  = datetime.now()
     apts = (Appointment.query
             .filter_by(patient_id=p.id)
@@ -874,7 +875,7 @@ def download_report_pdf():
 @dashboard_bp.route("/api/download_json")
 
 def download_json():
-    p    = current_user
+    p    = g.user
     now  = datetime.now()
     apts = Appointment.query.filter_by(patient_id=p.id).all()
 
@@ -911,6 +912,4 @@ def download_json():
     return response
 
 
-# ─────────────────────────────────────────
-# ─────────────────────────────────────────
 
