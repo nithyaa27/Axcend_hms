@@ -45,6 +45,7 @@ def get_departments():
         {
             "id": d.id,
             "name": d.name,
+            "description": d.description or "",
             "head": d.head or "",
             "status": d.status or "Active",
             "doctors_count": len(d.doctors),
@@ -57,6 +58,7 @@ def get_departments():
 def add_department():
     data = request.get_json() or {}
     name = (data.get("name") or "").strip()
+    description = (data.get("description") or "").strip()
     head = (data.get("head") or "").strip()
     status = (data.get("status") or "Active").strip()
 
@@ -70,7 +72,7 @@ def add_department():
     if existing:
         return jsonify({"error": "Department already exists"}), 400
 
-    new_department = Department(name=name, head=head, status=status)
+    new_department = Department(name=name, description=description, head=head, status=status)
     db.session.add(new_department)
     db.session.commit()
 
@@ -85,6 +87,7 @@ def update_department(department_id):
 
     data = request.get_json() or {}
     name = (data.get("name") or "").strip()
+    description = (data.get("description") or "").strip()
     head = (data.get("head") or "").strip()
     status = (data.get("status") or "Active").strip()
 
@@ -102,6 +105,7 @@ def update_department(department_id):
         return jsonify({"error": "Department already exists"}), 400
 
     department.name = name
+    department.description = description
     department.head = head
     department.status = status
     db.session.commit()
@@ -168,7 +172,7 @@ def add_doctor():
     if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
         return jsonify({"error": "Invalid email format"}), 400
 
-    department = db.session.get(Department, int(department_id))
+    department = db.session.get(Department, (department_id))
     if not department:
         return jsonify({"error": "Department not found"}), 404
 
@@ -233,7 +237,7 @@ def update_doctor(doctor_id):
     if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
         return jsonify({"error": "Invalid email format"}), 400
 
-    department = db.session.get(Department, int(department_id))
+    department = db.session.get(Department, (department_id))
     if not department:
         return jsonify({"error": "Department not found"}), 404
 
@@ -354,7 +358,7 @@ def add_patient_admin():
         name=name,
         email=email,
         phone=phone,
-        age=int(age),
+        age=age,
         gender=gender,
         role="patient",
         patient_uid=uid,
@@ -392,7 +396,7 @@ def update_patient(patient_id):
     patient.name = name
     patient.email = email
     patient.phone = phone
-    patient.age = int(age)
+    patient.age = age
     patient.gender = gender
     db.session.commit()
     return jsonify({"message": "Patient updated successfully"})

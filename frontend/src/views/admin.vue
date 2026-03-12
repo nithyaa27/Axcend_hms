@@ -70,7 +70,7 @@
       <!-- DASHBOARD TAB -->
       <div v-if="tab === 'dashboard'" class="space-y-8">
         <div>
-          <h1 class="text-2xl font-semibold">Admin Dashboard</h1>
+          <h1>Admin Dashboard</h1>
           <p class="text-gray-500">Overview of hospital management system. Welcome, {{ adminName }}</p>
         </div>
 
@@ -114,7 +114,7 @@
 
         <div class="table-card">
           <div class="table-header">
-            <h2 class="font-semibold">Recent Appointments</h2>
+            <h2 class="text-2xl font-semibold">Recent Appointments</h2>
           </div>
           <table class="data-table">
             <thead>
@@ -149,19 +149,23 @@
       <!-- DEPARTMENTS TAB -->
       <div v-if="tab === 'departments'" class="space-y-6">
         <div class="flex-between">
-          <h1 class="text-2xl font-semibold">Departments Management</h1>
+          <div>
+          <h1>Department Management</h1>
+          <p class="text-gray-500">Manage all departments in the system</p>
+          </div>
           <button class="btn-primary" @click="openDepartmentModal()">+ Add Department</button>
         </div>
 
         <div class="table-card">
           <div class="table-header flex-between">
-            <h2>Departments ({{ departments.length }})</h2>
+            <h1 class="text-2xl font-semibold">All Departments ({{ departments.length }})</h1>
             <input v-model="deptSearch" placeholder="Search department" class="search-input" />
           </div>
           <table class="data-table">
-            <thead>
+            <thead v-if="filteredDepartments.length > 0">
               <tr>
                 <th>Name</th>
+                <th>Description</th>
                 <th>Head</th>
                 <th>Doctors</th>
                 <th>Actions</th>
@@ -170,6 +174,7 @@
             <tbody>
               <tr v-for="dep in filteredDepartments" :key="dep.id">
                 <td class="font-medium">{{ dep.name }}</td>
+                <td class="description-cell">{{ dep.description || 'N/A' }}</td>
                 <td>{{ dep.head || 'N/A' }}</td>
                 <td>{{ dep.doctors_count || 0 }}</td>
                 <td class="actions-cell">
@@ -178,7 +183,7 @@
                 </td>
               </tr>
               <tr v-if="filteredDepartments.length === 0">
-                <td colspan="4" class="empty-row">No departments found</td>
+                <td colspan="5" class="empty-row">No departments found</td>
               </tr>
             </tbody>
           </table>
@@ -188,17 +193,20 @@
       <!-- DOCTORS TAB -->
       <div v-if="tab === 'doctors'" class="space-y-6">
         <div class="flex-between">
-          <h1 class="text-2xl font-semibold">Doctors Management</h1>
+          <div>
+          <h1>Doctor Management</h1>
+          <p class="text-gray-500">Manage all doctors in the system</p>
+          </div>
           <button class="btn-primary" @click="openDoctorModal()">+ Add Doctor</button>
         </div>
 
         <div class="table-card">
           <div class="table-header flex-between">
-            <h2>All Doctors ({{ filteredDoctors.length }})</h2>
+            <h1 class="text-2xl font-semibold">All Doctors ({{ filteredDoctors.length }})</h1>
             <input v-model="doctorSearch" placeholder="Search doctor" class="search-input" />
           </div>
           <table class="data-table">
-            <thead>
+            <thead v-if="filteredDoctors.length > 0">
               <tr>
                 <th>Name</th>
                 <th>Specialization</th>
@@ -240,16 +248,19 @@
       <!-- PATIENTS TAB -->
       <div v-if="tab === 'patients'" class="space-y-6">
         <div class="flex-between">
-          <h1 class="text-2xl font-semibold">Patient Management</h1>
+          <div>
+          <h1>Patient Management</h1>
+          <p class="text-gray-500">Manage all patients in the system</p>
+          </div>
         </div>
 
         <div class="table-card">
           <div class="table-header flex-between">
-            <h2>All Patients ({{ filteredPatients.length }})</h2>
+            <h1 class="text-2xl font-semibold">All Patients ({{ filteredPatients.length }})</h1>
             <input v-model="patientSearch" placeholder="Search patient" class="search-input" />
           </div>
           <table class="data-table">
-            <thead>
+            <thead v-if="filteredPatients.length > 0">
               <tr>
                 <th>Name</th>
                 <th>Email</th>
@@ -285,17 +296,17 @@
       <div v-if="tab === 'appointments'" class="space-y-6">
         <div class="flex-between">
           <div>
-            <h1 class="text-2xl font-semibold">Appointment Management</h1>
+            <h1>Appointment Management</h1>
             <p class="text-gray-500">View and manage all appointments</p>
           </div>
         </div>
 
         <div class="table-card">
           <div class="table-header flex-between">
-            <h2>All Appointments ({{ filteredAppointments.length }})</h2>
+            <h1 class="text-2xl font-semibold">All Appointments ({{ filteredAppointments.length }})</h1>
           </div>
           <table class="data-table">
-            <thead>
+            <thead v-if="filteredAppointments.length > 0">
               <tr>
                 <th>Appointment ID</th>
                 <th>Doctor</th>
@@ -334,6 +345,7 @@
         <div class="modal-form">
           <input v-model="departmentForm.name" placeholder="Department Name" class="form-input" />
           <input v-model="departmentForm.head" placeholder="Name of Head" class="form-input" />
+          <textarea v-model="departmentForm.description" placeholder="Description" class="form-input" rows="3" style="resize: vertical;"></textarea>
         </div>
         <div class="modal-footer">
           <button class="btn-ghost" @click="showDepartmentModal = false">Cancel</button>
@@ -430,7 +442,7 @@ export default {
       showDepartmentModal: false,
       showDoctorModal: false,
       showPatientModal: false,
-      departmentForm: { id: null, name: "", head: "" },
+      departmentForm: { id: null, name: "", description: "", head: "" },
       doctorForm: {
         id: null,
         name: "",
@@ -500,8 +512,8 @@ export default {
     },
     openDepartmentModal(dep = null) {
       this.departmentForm = dep
-        ? { id: dep.id, name: dep.name, head: dep.head || "" }
-        : { id: null, name: "", head: "" }
+        ? { id: dep.id, name: dep.name, description: dep.description || "", head: dep.head || "" }
+        : { id: null, name: "", description: "", head: "" }
       this.showDepartmentModal = true
     },
     async saveDepartment() {
@@ -509,6 +521,7 @@ export default {
       try {
         const payload = {
           name: this.departmentForm.name,
+          description: this.departmentForm.description || "",
           head: this.departmentForm.head || ""
         }
         if (this.departmentForm.id) {
@@ -523,7 +536,7 @@ export default {
     },
     async deleteDepartment(id) {
       if (!confirm("Delete this department?")) return
-      try { await api.delete(`/api/delete_department/${id}`); this.loadDepartments(); } catch (err) { alert("Failed deletion"); }
+      try { await api.delete(`/api/delete_department/${id}`); this.loadDepartments(); } catch (err) { alert("Cannot delete department,doctor assigned to it"); }
     },
     openDoctorModal(doc = null) {
       this.doctorForm = doc
@@ -784,11 +797,12 @@ export default {
 /* ---------------- TABLES ---------------- */
 .table-card { background: white; border: 1px solid #e5e7eb; border-radius: 12px; }
 .table-header { padding: 20px; border-bottom: 1px solid #e5e7eb; }
-.data-table { width: 100%; border-collapse: collapse; }
-.data-table th { background: #f9fafb; padding: 12px 16px; text-align: left; color: #111827; font-weight: 600; font-size: 14px; }
-.data-table td { padding: 14px 16px; border-top: 1px solid #e5e7eb; font-size: 14px; }
+.data-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.data-table th { background: #f9fafb; padding: 12px 16px; text-align: left; color: #111827; font-weight: 600; font-size: 15px; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; }
+.data-table td { padding: 14px 16px; border-top: 1px solid #e5e7eb; font-size: 14px; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; }
 .empty-row { text-align: center; padding: 40px; color: #9ca3af; }
 .font-medium { font-weight: 500; }
+.description-cell { max-width: 300px; }
 
 .status-pill {
   padding: 4px 12px;
