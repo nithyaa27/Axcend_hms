@@ -110,7 +110,7 @@ def _send_reset_email(recipient_email, reset_link):
     msg.set_content(
         "You requested to reset your HMS password.\n\n"
         f"Use this link to reset your password: {reset_link}\n\n"
-        "This link expires in 10 minutes."
+        "This link expires in 1 hour."
     )
 
     try:
@@ -318,7 +318,7 @@ def reset_password():
         return jsonify({"status": "error", "message": pass_error}), 400
 
     try:
-        payload = get_serializer().loads(token, max_age=600)
+        payload = get_serializer().loads(token, max_age=3600)
         email = (payload.get("email") or "").strip().lower()
     except SignatureExpired:
         return jsonify({"status": "error", "message": "Reset token expired"}), 400
@@ -343,6 +343,42 @@ def reset_password():
 
     db.session.commit()
     return jsonify({"status": "success", "message": "Password reset successful"}), 200
+
+@app.route("/api/doctor/set-password", methods=["POST"])
+def doctor_set_password():
+    data = request.get_json() or {}
+    token = data.get("token")
+    password = data.get("password")
+
+    if not password:
+        return jsonify({"status": "error", "message": "Password is required"}), 400
+    
+    pass_error = _validate_password(password)
+    if pass_error:
+        return jsonify({"status": "error", "message": pass_error}), 400
+    
+    try:
+        payload = get_serializer().loads(token, max_age=3600)
+        doctor_id = payload.get("doctor_id")
+    except Exception as e:
+        return jsonify({"status": "error", "message": "The setup link is invalid or has expired."}), 400
+
+    from models.models import Doctor
+    try:
+        doctor = db.session.get(Doctor, int(doctor_id))
+    except (ValueError, TypeError):
+         return jsonify({"status": "error", "message": f"Invalid doctor ID in link: {doctor_id}"}), 400
+
+    if not doctor:
+        return jsonify({
+            "status": "error", 
+            "message": f"Doctor with ID {doctor_id} not found. The account may have been deleted or re-created. Please ask Admin to resend the link."
+        }), 404
+
+    doctor.set_password(password)
+    db.session.commit()
+
+    return jsonify({"status": "success", "message": "Password set successfully"})
 
 @app.route('/api/login', methods=['POST'])
 @app.route('/auth/login', methods=['POST'])
@@ -426,7 +462,7 @@ def me():
 # Blueprints
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(admin_bp)
-app.register_blueprint(auth_bp)
+# app.register_blueprint(auth_bp) # Moved to app.py
 app.register_blueprint(doctor_bp)
 
 # Create tables

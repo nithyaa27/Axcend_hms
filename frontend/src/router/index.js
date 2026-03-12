@@ -50,21 +50,20 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  // allow doctor set password page always (even if logged in)
-  if (to.path.startsWith('/doctor-set-password')) {
-    return
-  }
-
   const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true'
   const role = localStorage.getItem('role') || 'patient'
   const target = defaultRouteForRole(role)
-  const publicPaths = ['/login', '/register', '/forgot', '/reset-info']
+  const publicPaths = ['/login', '/register', '/forgot', '/reset-info', '/reset', '/doctor-set-password']
 
-  if (
-    (publicPaths.includes(to.path) || to.path.startsWith('/reset/')) &&
-    isLoggedIn
-  ) {
-    return target
+  // If already logged in, only redirect away from public pages if they are NOT reset pages.
+  // We want to allow people to reach reset pages even if they have an old session.
+  if (isLoggedIn && publicPaths.some(p => to.path.startsWith(p))) {
+    // Only redirect to dashboard if it's strictly a login/register type page, 
+    // NOT a reset page.
+    if (!to.path.startsWith('/reset/') && !to.path.startsWith('/doctor-set-password')) {
+       return target
+    }
+    return true
   }
 
   if (to.meta.requiresAuth && !isLoggedIn) {

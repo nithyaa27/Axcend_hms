@@ -16,6 +16,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - PYTHONPATH=/backend
       - TZ=Asia/Kolkata
+      - FRONTEND_URL=http://localhost:5173
     volumes:
       - db_data:/backend/instance
     depends_on:
