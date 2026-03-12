@@ -11,7 +11,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from extensions import db
 from routes.admin_routes import admin_bp
 from routes.dashboard_routes import dashboard_bp
-from routes.auth_routes import auth_bp
+# from routes.auth_routes import auth_bp - file deleted, logic moved to app.py
 from routes.doctor_routes import doctor_bp
 from utils.network_utils import get_actual_frontend_url
 from utils.token_utils import create_jwt_token, decode_jwt_token, get_serializer
