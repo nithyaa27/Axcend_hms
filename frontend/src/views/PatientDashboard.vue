@@ -369,6 +369,7 @@ function slotReasonLabel(reason) {
     'past_time':        'This time has already passed for today',
     'outside_schedule': 'Doctor is not on shift at this time',
     'doctor_off':       'Doctor is off on this day',
+    'doctor_inactive':  'Doctor account is inactive',
   }
   return map[reason] || 'Unavailable'
 }
