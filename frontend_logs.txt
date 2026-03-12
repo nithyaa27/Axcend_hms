@@ -1,0 +1,9 @@
+frontend-1  | npm error Missing script: "start"
+frontend-1  | npm error
+frontend-1  | npm error Did you mean one of these?
+frontend-1  | npm error   npm star # Mark your favorite packages
+frontend-1  | npm error   npm stars # View packages marked as favorites
+frontend-1  | npm error
+frontend-1  | npm error To see a list of scripts, run:
+frontend-1  | npm error   npm run
+frontend-1  | npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-11T11_30_19_471Z-debug-0.log

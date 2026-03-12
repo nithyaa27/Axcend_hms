@@ -800,6 +800,9 @@ export default {
 .status-pill.booked { background: #dbeafe; color: #2563eb; }
 .status-pill.completed { background: #dcfce7; color: #16a34a; }
 .status-pill.cancelled { background: #fee2e2; color: #dc2626; }
+.status-pill.not_attended { background: #fef3c7; color: #d97706; }
+.status-pill.not_visited { background: #ffedd5; color: #ea580c; }
+.status-pill.not_visited_cancelled { background: #f3f4f6; color: #4b5563; }
 .status-pill.active { background: #dcfce7; color: #16a34a; }
 .status-pill.inactive { background: #fee2e2; color: #dc2626; }
 

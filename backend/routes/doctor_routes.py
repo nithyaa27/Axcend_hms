@@ -8,7 +8,6 @@ from models.models import Doctor, DoctorAvailability, Prescription
 from models.patient import Patient
 
 doctor_bp = Blueprint("doctor_bp", __name__, url_prefix="/api/doctor")
-MISSED_APPOINTMENT_GRACE_MINUTES = 30
 
 
 def _require_doctor_route_access(doctor_id):
@@ -36,21 +35,6 @@ def _parse_prescription_text(medications_json):
     except Exception:
         pass
     return ""
-
-
-def _auto_cancel_missed_booked_for_doctor(doctor_id):
-    cutoff = datetime.now() - timedelta(minutes=MISSED_APPOINTMENT_GRACE_MINUTES)
-    stale_rows = Appointment.query.filter(
-        Appointment.doctor_id == doctor_id,
-        Appointment.status == AppointmentStatus.BOOKED,
-        Appointment.appointment_datetime < cutoff,
-    ).all()
-    if not stale_rows:
-        return 0
-    for appt in stale_rows:
-        appt.status = AppointmentStatus.CANCELLED
-    db.session.commit()
-    return len(stale_rows)
 
 
 def _get_reference_date(doctor_id):
@@ -97,7 +81,7 @@ def _serialize_appointment(appt, rx, now_local):
         "datetime": appt.appointment_datetime.isoformat(),
         "date": appt.appointment_datetime.date().isoformat(),
         "time": appt.appointment_datetime.strftime("%I:%M %p").lstrip("0"),
-        "status": appt.status,
+        "status": appt.get_derived_status(now_local),
         "patient_name": patient.name if patient else f"Patient {appt.patient_id}",
         "patient_id": patient.id if patient else appt.patient_id,
         "patient_uid": (patient.patient_uid if patient and patient.patient_uid else f"patient-{appt.patient_id}"),

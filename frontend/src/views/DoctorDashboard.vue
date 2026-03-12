@@ -109,7 +109,7 @@
               <tr v-for="appointment in todayAppointments" :key="appointment.id">
                 <td>{{ appointment.time }}</td>
                 <td>{{ appointment.patient_name }}</td>
-                <td><span class="status-badge">{{ appointment.status }}</span></td>
+                <td><span class="status-badge" :class="appointment.status">{{ appointment.status }}</span></td>
                 <td>
                   <button type="button" class="table-link" @click="openAppointment(appointment)">
                     View Details <i class="bi bi-arrow-right"></i>
@@ -142,7 +142,7 @@
                 <td>{{ formatDisplayDate(appointment.date) }}</td>
                 <td>{{ appointment.time }}</td>
                 <td>{{ appointment.patient_name }}</td>
-                <td><span class="status-badge">{{ appointment.status }}</span></td>
+                <td><span class="status-badge" :class="appointment.status">{{ appointment.status }}</span></td>
                 <td>
                   <button type="button" class="table-link" @click="openAppointment(appointment)">
                     View Details <i class="bi bi-arrow-right"></i>
@@ -558,6 +558,11 @@ th {
   font-size: 13px;
   text-transform: lowercase;
 }
+.status-badge.completed { background: #dcfce7; color: #16a34a; }
+.status-badge.cancelled { background: #fee2e2; color: #dc2626; }
+.status-badge.not_attended { background: #fef3c7; color: #d97706; }
+.status-badge.not_visited { background: #ffedd5; color: #ea580c; }
+.status-badge.not_visited_cancelled { background: #f3f4f6; color: #4b5563; }
 
 .table-link {
   border: 0;

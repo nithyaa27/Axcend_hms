@@ -14,19 +14,6 @@ from utils.network_utils import get_actual_frontend_url
 admin_bp = Blueprint("admin_bp", __name__)
 
 
-def _parse_datetime(date_str, time_str):
-    if not date_str or not time_str:
-        return None
-
-    value = f"{date_str.strip()} {time_str.strip()}"
-    formats = ("%Y-%m-%d %H:%M", "%Y-%m-%d %I:%M %p")
-    for fmt in formats:
-        try:
-            return datetime.strptime(value, fmt)
-        except ValueError:
-            continue
-    return None
-
 
 @admin_bp.before_request
 def require_admin():
@@ -178,7 +165,7 @@ def add_doctor():
     if not re.match(r"^\d{10}$", phone):
         return jsonify({"error": "Phone number must be exactly 10 digits"}), 400
 
-    if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
+    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
         return jsonify({"error": "Invalid email format"}), 400
 
     department = db.session.get(Department, int(department_id))
@@ -243,7 +230,7 @@ def update_doctor(doctor_id):
     if not re.match(r"^\d{10}$", phone):
         return jsonify({"error": "Phone number must be exactly 10 digits"}), 400
 
-    if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
+    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
         return jsonify({"error": "Invalid email format"}), 400
 
     department = db.session.get(Department, int(department_id))
@@ -347,6 +334,10 @@ def add_patient_admin():
     if not all([name, email, phone, gender, age]):
         return jsonify({"error": "All fields are required"}), 400
 
+    import re
+    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+        return jsonify({"error": "Invalid email format"}), 400
+
     existing = Patient.query.filter_by(email=email).first()
     if existing:
         return jsonify({"error": "Email already exists"}), 400
@@ -390,6 +381,10 @@ def update_patient(patient_id):
     if not all([name, email, phone, age, gender]):
         return jsonify({"error": "All fields are required"}), 400
 
+    import re
+    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+        return jsonify({"error": "Invalid email format"}), 400
+
     existing = Patient.query.filter(Patient.email == email, Patient.id != patient_id).first()
     if existing:
         return jsonify({"error": "Email already exists"}), 400
@@ -425,8 +420,8 @@ def get_admin_appointments():
             "doctor_name": a.doctor.name if a.doctor else "",
             "patient_name": a.patient.name if a.patient else "",
             "appointment_date": a.appointment_datetime.strftime("%Y-%m-%d") if a.appointment_datetime else "",
-            "appointment_time": a.appointment_datetime.strftime("%H:%M") if a.appointment_datetime else "",
-            "status": a.status,
+            "appointment_time": a.appointment_datetime.strftime("%I:%M %p").lstrip("0") if a.appointment_datetime else "",
+            "status": a.get_derived_status(),
         }
         for a in appointments
     ])

@@ -1,0 +1,37 @@
+ 
+/usr/local/lib/python3.10/site-packages/celery/platforms.py:841: SecurityWarning: You're running the worker with superuser privileges: this is
+ -------------- celery@f79c48d37367 v5.6.2 (recovery)
+--- ***** ----- 
+-- ******* ---- Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.41 2026-03-12 04:24:56
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         hms_celery:0x721870d74df0
+- ** ---------- .> transport:   redis://redis:6379/0
+- ** ---------- .> results:     redis://redis:6379/0
+- *** --- * --- .> concurrency: 12 (prefork)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+                
+
+[tasks]
+  . tasks.send_appointment_reminders
+
+absolutely not recommended!
+
+Please specify a different user using the --uid option.
+
+User information: uid=0 euid=0 gid=0 egid=0
+
+  warnings.warn(SecurityWarning(ROOT_DISCOURAGED.format(
+[2026-03-12 04:24:57,425: INFO/MainProcess] Connected to redis://redis:6379/0
+[2026-03-12 04:24:57,429: INFO/MainProcess] mingle: searching for neighbors
+[2026-03-12 04:24:58,441: INFO/MainProcess] mingle: all alone
+[2026-03-12 04:24:58,456: INFO/MainProcess] celery@f79c48d37367 ready.
+[2026-03-12 04:25:26,548: INFO/MainProcess] Task tasks.send_appointment_reminders[930ae073-fce7-4ba3-b03c-989b02f60c7b] received
+[2026-03-12 04:25:26,713: WARNING/ForkPoolWorker-8] [DEBUG] Checking reminders. Now=2026-03-12 04:25:26.712988, Window=2026-03-12 05:25:26.712988
+[2026-03-12 04:25:26,720: INFO/ForkPoolWorker-8] Task tasks.send_appointment_reminders[930ae073-fce7-4ba3-b03c-989b02f60c7b] succeeded in 0.17017722900004628s: None
+[2026-03-12 04:25:56,558: INFO/MainProcess] Task tasks.send_appointment_reminders[8383011b-7e23-4fec-8873-637bcedf8675] received
+[2026-03-12 04:25:56,559: WARNING/ForkPoolWorker-8] [DEBUG] Checking reminders. Now=2026-03-12 04:25:56.559688, Window=2026-03-12 05:25:56.559688
+[2026-03-12 04:25:56,563: INFO/ForkPoolWorker-8] Task tasks.send_appointment_reminders[8383011b-7e23-4fec-8873-637bcedf8675] succeeded in 0.003770197999983793s: None

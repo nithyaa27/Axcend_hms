@@ -19,8 +19,18 @@ from utils.token_utils import create_jwt_token, decode_jwt_token, get_serializer
 app = Flask(__name__)
 
 # Production-safe defaults with env overrides.
+basedir = os.path.abspath(os.path.dirname(__file__))
+instance_dir = os.path.join(basedir, "instance")
+if not os.path.exists(instance_dir):
+    os.makedirs(instance_dir, exist_ok=True)
+db_path = os.path.join(instance_dir, "hms.db")
+
+db_uri = os.getenv("HMS_DATABASE_URI", "")
+if not db_uri or db_uri == "sqlite:///hms.db":
+    db_uri = f"sqlite:///{db_path}"
+
 app.config["SECRET_KEY"] = os.getenv("HMS_SECRET_KEY", "your-secret-key-change-in-production")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("HMS_DATABASE_URI", "sqlite:///hms.db")
+app.config["SQLALCHEMY_DATABASE_URI"] = db_uri
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Extensions
@@ -69,22 +79,6 @@ def load_user_from_token():
             from models.patient import Patient
             g.user = db.session.get(Patient, user_id)
 
-# Helper to provide 'current_user' mock for route consistency
-class CurrentUserProxy:
-    @property
-    def is_authenticated(self):
-        return g.user is not None
-    def __getattr__(self, name):
-        if g.user:
-            return getattr(g.user, name)
-        raise AttributeError(f"No active user session and no attribute {name}")
-
-current_user = CurrentUserProxy()
-
-# Inject current_user into route modules if they import it from app
-# This is a bit of a hack to avoid changing every route file's imports right now,
-# but a cleaner way is to use a decorator or just fix the route files.
-# For this task, I will fix the route files to use g.user or my proxy.
 
 ROLE_DASHBOARD_PATHS = {
     "patient": "/patient",
@@ -147,6 +141,13 @@ def _validate_name(name):
         return "Name must be at least 3 characters long"
     if not clean_name.replace(" ", "").isalpha():
         return "Name should contain only letters"
+    return None
+
+def _validate_email(email):
+    # Basic email pattern validation
+    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_regex, email):
+        return "Please enter a valid email address"
     return None
 
 def _next_patient_uid():
@@ -217,6 +218,10 @@ def register():
     name_error = _validate_name(name)
     if name_error:
         return jsonify({"message": name_error}), 400
+
+    email_error = _validate_email(email)
+    if email_error:
+        return jsonify({"message": email_error}), 400
 
     pass_error = _validate_password(password)
     if pass_error:
@@ -431,4 +436,4 @@ with app.app_context():
 
 if __name__ == "__main__":
     debug_mode = os.getenv("FLASK_DEBUG", "1") == "1"
-    app.run(debug=debug_mode, host="0.0.0.0")
+    app.run(debug=debug_mode, host="0.0.0.0", port=5000)

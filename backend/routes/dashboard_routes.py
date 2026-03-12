@@ -456,7 +456,7 @@ def list_appointments():
             "date_full": dt.strftime("%A, %B %d, %Y") if dt else None,
             "time":      dt.strftime("%I:%M %p").lstrip("0") if dt else None,
             "appointment_datetime": dt.isoformat() if dt else None,
-            "status":    a.status,
+            "status":    a.get_derived_status(now),
             "display_status": derived["display_status"],
             "display_label": derived["display_label"],
             "reschedulable": derived["reschedulable"],
@@ -602,8 +602,8 @@ def cancel_appointment(apt_id):
 def reschedule_appointment(apt_id):
     apt = Appointment.query.filter_by(id=apt_id, patient_id=g.user.id).first_or_404()
 
-    if apt.status != AppointmentStatus.BOOKED:
-        return jsonify({"status": "error", "message": "Only booked appointments can be rescheduled"}), 400
+    if apt.status not in {AppointmentStatus.BOOKED, AppointmentStatus.NOT_ATTENDED}:
+        return jsonify({"status": "error", "message": "Only booked or not attended appointments can be rescheduled"}), 400
 
     now = datetime.now()
     apt_dt = apt.appointment_datetime
@@ -638,6 +638,8 @@ def reschedule_appointment(apt_id):
         return jsonify({"status": "error", "message": "That slot is already taken"}), 409
 
     apt.appointment_datetime = new_dt
+    apt.status = AppointmentStatus.BOOKED
+    apt.mail_sent = False  # Allow new reminder emails
     db.session.commit()
     return jsonify({"status": "success", "message": "Appointment rescheduled"})
 
