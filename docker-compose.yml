@@ -18,7 +18,7 @@ services:
       - TZ=Asia/Kolkata
       - FRONTEND_URL=http://localhost:5173
     volumes:
-      - db_data:/backend/instance
+      - ./backend/instance:/backend/instance
     depends_on:
       - redis
  
@@ -31,7 +31,7 @@ services:
       - PYTHONPATH=/backend
       - TZ=Asia/Kolkata
     volumes:
-      - db_data:/backend/instance
+      - ./backend/instance:/backend/instance
     depends_on:
       - redis
       - backend
@@ -45,7 +45,7 @@ services:
       - PYTHONPATH=/backend
       - TZ=Asia/Kolkata
     volumes:
-      - db_data:/backend/instance
+      - ./backend/instance:/backend/instance
     depends_on:
       - redis
       - backend
@@ -56,6 +56,3 @@ services:
       - "5173:5173"
     depends_on:
       - backend
-
-volumes:
-  db_data:

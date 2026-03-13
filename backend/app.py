@@ -8,13 +8,17 @@ from flask_cors import CORS
 from itsdangerous import BadSignature, SignatureExpired
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from sqlalchemy import text
 from extensions import db
 from routes.admin_routes import admin_bp
 from routes.dashboard_routes import dashboard_bp
-# from routes.auth_routes import auth_bp - file deleted, logic moved to app.py
 from routes.doctor_routes import doctor_bp
 from utils.network_utils import get_actual_frontend_url
 from utils.token_utils import create_jwt_token, decode_jwt_token, get_serializer
+
+# ==========================================
+# Flask Application Setup & Configuration
+# ==========================================
 
 app = Flask(__name__)
 
@@ -50,6 +54,11 @@ CORS(
 # Global user logic for the request
 @app.before_request
 def load_user_from_token():
+    """
+    Middleware to extract the JWT token from the Authorization header,
+    decode it, and load the corresponding user (Patient or Doctor) into the Flask global object `g`.
+    This allows subsequent route handlers to access the current user via `g.user`.
+    """
     # Skip CORS preflight
     if request.method == "OPTIONS":
         return "", 200
@@ -95,6 +104,10 @@ DEFAULT_ADMIN = {
 }
 
 def _send_reset_email(recipient_email, reset_link):
+    """
+    Sends a password reset email using SMTP.
+    Configures the connection based on environment variables.
+    """
     smtp_host = os.getenv("HMS_SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.getenv("HMS_SMTP_PORT", "587"))
     smtp_user = os.getenv("HMS_SMTP_USER", "hmsproject26@gmail.com")
@@ -123,6 +136,14 @@ def _send_reset_email(recipient_email, reset_link):
         return False, str(exc)
 
 def _validate_password(password):
+    """
+    Validates a password against security requirements:
+    - Minimum 8 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one number
+    - At least one special character
+    """
     if len(password) < 8:
         return "Password must be at least 8 characters long"
     if not re.search(r"[A-Z]", password):
@@ -136,6 +157,9 @@ def _validate_password(password):
     return None
 
 def _validate_name(name):
+    """
+    Validates that the name is at least 3 characters long and contains only letters.
+    """
     clean_name = (name or "").strip()
     if len(clean_name) < 3:
         return "Name must be at least 3 characters long"
@@ -151,11 +175,18 @@ def _validate_email(email):
     return None
 
 def _next_patient_uid():
+    """
+    Generates a unique identifier for a new patient (e.g., P0001, P0002).
+    """
     from models.patient import Patient
     count = Patient.query.count() + 1
     return f"P{count:04d}"
 
 def _ensure_default_admin():
+    """
+    Ensures that a default administrator account exists in the database.
+    This runs every time the application starts.
+    """
     from models.patient import Patient
 
     email = DEFAULT_ADMIN["email"].strip().lower()
@@ -182,6 +213,10 @@ def _ensure_default_admin():
     db.session.commit()
 
 def _build_login_response(user):
+    """
+    Helper to construct a standard JSON response for successful authentication,
+    including a JWT token and redirect path based on user role.
+    """
     role = getattr(user, "role", "patient") or "patient"
     token = create_jwt_token(user.id, user.email, role)
     
@@ -203,6 +238,10 @@ def _build_login_response(user):
 @app.route("/api/register", methods=["POST"])
 @app.route("/auth/register", methods=["POST"])
 def register():
+    """
+    Endpoint for patient registration. 
+    Validates input and creates a new Patient record in the database.
+    """
     data = request.get_json() or {}
 
     name = (data.get("name") or "").strip()
@@ -265,6 +304,10 @@ def register():
 @app.route("/api/forgot-password", methods=["POST"])
 @app.route("/auth/forgot-password", methods=["POST"])
 def forgot_password():
+    """
+    Generates a password reset token for a user (Patient or Doctor) 
+    and sends it via email.
+    """
     data = request.get_json() or {}
     email = (data.get("email") or "").strip().lower()
     if not email:
@@ -306,6 +349,9 @@ def forgot_password():
 @app.route("/api/reset-password", methods=["POST"])
 @app.route("/auth/reset-password", methods=["POST"])
 def reset_password():
+    """
+    Resets the user's password using a valid reset token.
+    """
     data = request.get_json() or {}
     token = data.get("token") or ""
     password = data.get("password") or ""
@@ -346,6 +392,10 @@ def reset_password():
 
 @app.route("/api/doctor/set-password", methods=["POST"])
 def doctor_set_password():
+    """
+    Special endpoint for doctors to set their initial password 
+    when their account is first created by an admin.
+    """
     data = request.get_json() or {}
     token = data.get("token")
     password = data.get("password")
@@ -383,6 +433,10 @@ def doctor_set_password():
 @app.route('/api/login', methods=['POST'])
 @app.route('/auth/login', methods=['POST'])
 def login():
+    """
+    Authenticates users (Admin, Doctor, Patient).
+    Uses email and password, verifying against the appropriate table.
+    """
     data = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
     password = data.get('password') or ''
@@ -443,6 +497,9 @@ def logout():
 @app.route('/api/me', methods=['GET'])
 @app.route('/auth/me', methods=['GET'])
 def me():
+    """
+    Returns current logged-in user details based on the JWT token.
+    """
     if not g.user:
         msg = getattr(g, "auth_error", "Not logged in")
         return jsonify({'status': 'error', 'message': msg}), 401
@@ -468,6 +525,14 @@ app.register_blueprint(doctor_bp)
 # Create tables
 with app.app_context():
     db.create_all()
+    # Safe migration: add 'remark' column to appointments if it doesn't exist yet.
+    # This handles Docker containers whose DB was created before this column was added.
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE appointments ADD COLUMN remark VARCHAR(255)"))
+            conn.commit()
+    except Exception:
+        pass  # Column already exists — safe to ignore
     _ensure_default_admin()
 
 if __name__ == "__main__":

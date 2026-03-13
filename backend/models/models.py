@@ -5,7 +5,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 # Department Table
 class Department(db.Model):
-
+    """
+    Represents a hospital department (e.g., Cardiology, Neurology).
+    Contains basic info and maintains a bidirectional relationship with doctors.
+    """
     __tablename__ = "departments"
 
     id          = db.Column(db.Integer, primary_key=True)
@@ -22,7 +25,11 @@ class Department(db.Model):
 
 # Doctor Table
 class Doctor(db.Model):
-
+    """
+    Represents a doctor in the hospital system.
+    Stores professional details, login credentials (hashed),
+    and their association with a specific department.
+    """
     __tablename__ = "doctors"
 
     id             = db.Column(db.Integer, primary_key=True)
@@ -64,7 +71,10 @@ class Doctor(db.Model):
 
 # DoctorSchedule Table
 class DoctorSchedule(db.Model):
-
+    """
+    Weekly schedule for a doctor, defining work hours (shift_start/end)
+    and work type (OPD, Emergency, etc.) for each day of the week.
+    """
     __tablename__ = "doctor_schedules"
 
     id        = db.Column(db.Integer, primary_key=True)
@@ -105,7 +115,10 @@ class DoctorAvailability(db.Model):
 
 
 class Prescription(db.Model):
-
+    """
+    Detailed medical prescription issued by a doctor to a patient.
+    Links a diagnosis to specific medications and instructions.
+    """
     __tablename__ = "prescriptions"
 
     id = db.Column(db.Integer, primary_key=True)

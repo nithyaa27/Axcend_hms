@@ -1,6 +1,13 @@
 import os
 from celery import Celery
 
+# ==========================================================
+# Celery Configuration
+# ==========================================================
+# Configures the Celery worker and beat for asynchronous tasks
+# (e.g., sending emails, scheduled status updates).
+# Defaults to Redis on localhost if environment variables are missing.
+
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 
@@ -18,5 +25,5 @@ celery_app.conf.update(
     enable_utc=True,
 )
 
-# Import tasks to ensure they are registered
+# Import tasks to ensure they are registered with the celery instance
 import tasks

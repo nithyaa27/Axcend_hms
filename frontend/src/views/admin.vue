@@ -417,6 +417,19 @@
 </template>
 
 <script>
+
+/**
+ * AdminDashboard View
+ * -------------------
+ * This component provides the main interface for hospital administrators.
+ * It allows management of departments, doctors, patients, and appointments.
+ * Features:
+ * - Real-time statistics overview.
+ * - CRUD operations for Departments and Doctors.
+ * - Dynamic search and filtering for all data tables.
+ * - Integrated password management for new doctor accounts.
+ */
+ 
 import api from "@/services/interceptor"
 
 export default {

@@ -10,12 +10,21 @@ from models.patient import Patient
 from models.appointment import Appointment, AppointmentStatus
 from models.models import Doctor, DoctorSchedule, Department, Prescription
 
+# ==========================================
+# Dashboard & Patient Routes Blueprint
+# ==========================================
+# This module provides all functionalities related to the patient facing dashboard,
+# including booking appointments, viewing medical history, and generating reports.
+
 dashboard_bp = Blueprint("dashboard_bp", __name__)
 
 DAILY_BOOKING_LIMIT = 3
 
 @dashboard_bp.before_request
 def require_login_for_dashboard_api():
+    """
+    Ensures the user is logged in before accessing any dashboard-related data.
+    """
     if not g.user:
         msg = getattr(g, "auth_error", "Authentication required")
         return jsonify({"message": msg}), 401
@@ -397,8 +406,12 @@ def _build_report_lines(patient, appointments, prescriptions, generated_at):
 # ─────────────────────────────────────────
 
 @dashboard_bp.route("/api/dashboard_data")
-
 def get_dashboard_data():
+    """
+    Fetches the patient's dashboard summary, including visit statistics and
+    basic profile information.
+    """
+    now  = datetime.now()
     now  = datetime.now()
     apts = Appointment.query.filter_by(patient_id=g.user.id).all()
 
@@ -428,8 +441,10 @@ def get_dashboard_data():
 # API: MY APPOINTMENTS (upcoming / past)
 # ─────────────────────────────────────────
 @dashboard_bp.route("/api/appointments", methods=["GET"])
-
 def list_appointments():
+    """
+    Lists the patient's appointments, filtered by 'upcoming' or 'past' status.
+    """
     tab = request.args.get("tab", "upcoming")
     now = datetime.now()
     base = Appointment.query.filter_by(patient_id=g.user.id)
@@ -473,8 +488,11 @@ def list_appointments():
 # API: BOOK APPOINTMENT
 # ─────────────────────────────────────────
 @dashboard_bp.route("/api/appointments", methods=["POST"])
-
 def book_appointment():
+    """
+    Validates and processes a new appointment booking request for the logged-in patient.
+    Checks for slot clashes and daily booking limits.
+    """
     d         = request.get_json() or {}
     doctor_id = d.get("doctor_id")
     date_str  = d.get("date")
@@ -576,8 +594,10 @@ def get_appointment(apt_id):
 # API: CANCEL APPOINTMENT
 # ─────────────────────────────────────────
 @dashboard_bp.route("/api/appointments/<int:apt_id>/cancel", methods=["POST"])
-
 def cancel_appointment(apt_id):
+    """
+    Marks a booked appointment as 'CANCELLED' if it is in the future.
+    """
     apt = Appointment.query.filter_by(id=apt_id, patient_id=g.user.id).first_or_404()
 
     if apt.status != AppointmentStatus.BOOKED:
@@ -648,8 +668,10 @@ def reschedule_appointment(apt_id):
 # API: FIND DOCTORS
 # ─────────────────────────────────────────
 @dashboard_bp.route("/api/doctors", methods=["GET"])
-
 def find_doctors():
+    """
+    Search and filter utility for finding doctors by name, department, or specialization.
+    """
     search  = request.args.get("search", "").strip()
     dept_id = request.args.get("department_id", type=int)
     spec    = request.args.get("specialization", "").strip()
@@ -691,8 +713,11 @@ def find_doctors():
 # API: DOCTOR SLOTS
 # ─────────────────────────────────────────
 @dashboard_bp.route("/api/doctors/<int:doctor_id>/slots", methods=["GET"])
-
 def doctor_slots(doctor_id):
+    """
+    Calculates available time slots for a doctor on a specific date, taking into
+    account their schedule, existing bookings, and office hours.
+    """
     date_str = request.args.get("date")
     if not date_str:
         return jsonify({"status": "error", "message": "date required"}), 400

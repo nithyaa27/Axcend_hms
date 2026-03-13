@@ -24,6 +24,7 @@ class Appointment(db.Model):
 
     status = db.Column(db.String(50), nullable=False, default=AppointmentStatus.BOOKED)
     mail_sent = db.Column(db.Boolean, default=False)
+    remark = db.Column(db.String(255), nullable=True) # Successfully sent or failed
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

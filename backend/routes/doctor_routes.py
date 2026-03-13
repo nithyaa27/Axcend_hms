@@ -7,10 +7,20 @@ from models.appointment import Appointment, AppointmentStatus
 from models.models import Doctor, DoctorAvailability, Prescription
 from models.patient import Patient
 
+# ==========================================
+# Doctor Routes Blueprint
+# ==========================================
+# This module handles all doctor-specific operations, including dashboard stats,
+# appointment management, availability scheduling, and patient prescriptions.
+
 doctor_bp = Blueprint("doctor_bp", __name__, url_prefix="/api/doctor")
 
 
 def _require_doctor_route_access(doctor_id):
+    """
+    Authorization helper: Ensures the requester is either the specific doctor
+    addressed by `doctor_id` or an administrator.
+    """
     if not g.user:
         msg = getattr(g, "auth_error", "Authentication required")
         return jsonify({"message": msg}), 401
@@ -97,6 +107,11 @@ def _serialize_appointment(appt, rx, now_local):
 
 @doctor_bp.route("/<int:doctor_id>/dashboard", methods=["GET"])
 def dashboard(doctor_id):
+    """
+    Main dashboard endpoint for doctors. Returns counts for today's and upcoming
+    appointments, total distinct patients, and a detailed schedule for the current week.
+    """
+    auth_error = _require_doctor_route_access(doctor_id)
     auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error
@@ -184,6 +199,11 @@ def dashboard(doctor_id):
 
 @doctor_bp.route("/<int:doctor_id>/availability", methods=["POST"])
 def update_availability(doctor_id):
+    """
+    Updates the doctor's daily availability status (Available/Unavailable) 
+    for a given set of dates.
+    """
+    auth_error = _require_doctor_route_access(doctor_id)
     auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error
@@ -218,6 +238,11 @@ def update_availability(doctor_id):
 
 @doctor_bp.route("/<int:doctor_id>/appointments/<int:appointment_id>/treatment", methods=["GET"])
 def get_treatment(doctor_id, appointment_id):
+    """
+    Retrieves the treatment/prescription details for a specific appointment,
+    along with a brief history of the patient's past prescriptions.
+    """
+    auth_error = _require_doctor_route_access(doctor_id)
     auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error
@@ -265,6 +290,11 @@ def get_treatment(doctor_id, appointment_id):
 
 @doctor_bp.route("/<int:doctor_id>/appointments/<int:appointment_id>/treatment", methods=["POST"])
 def create_or_update_treatment(doctor_id, appointment_id):
+    """
+    Records or updates a medical prescription for an appointment.
+    Automatically marks the appointment as 'COMPLETED' upon successful submission.
+    """
+    auth_error = _require_doctor_route_access(doctor_id)
     auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error
@@ -349,6 +379,10 @@ def create_or_update_treatment(doctor_id, appointment_id):
 
 @doctor_bp.route("/<int:doctor_id>/completed-appointments", methods=["GET"])
 def completed_appointments(doctor_id):
+    """
+    Lists all past appointments that have been successfully treated/completed.
+    """
+    auth_error = _require_doctor_route_access(doctor_id)
     auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error

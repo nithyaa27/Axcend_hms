@@ -179,6 +179,18 @@
 </template>
 
 <script>
+
+/**
+ * DoctorDashboard View
+ * -------------------
+ * The primary interface for medical practitioners.
+ * Features:
+ * - Weekly appointment schedule (grid view).
+ * - Real-time statistics for daily and upcoming consultations.
+ * - Quick access to patient details and treatment recording.
+ * - Profile management for the logged-in doctor.
+ */
+ 
 import DoctorShell from "@/components/DoctorShell.vue"
 import api from "@/services/interceptor"
 

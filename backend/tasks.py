@@ -53,6 +53,9 @@ def send_appointment_reminders():
             patient = appt.patient
             if not patient or not patient.email:
                 print(f"[WARNING] No email for patient in appointment {appt.id}")
+                appt.mail_sent = True
+                appt.remark = "Failed: No email provided"
+                db.session.commit()
                 continue
                 
             subject = "Appointment Reminder"
@@ -72,10 +75,14 @@ HMS
             try:
                 send_email(patient.email, subject, body)
                 appt.mail_sent = True
+                appt.remark = "Successfully sent"
                 db.session.commit()
                 print(f"[INFO] Reminder sent for appt {appt.id} to {patient.email}")
             except Exception as e:
                 db.session.rollback()
+                appt.mail_sent = False
+                appt.remark = f"Failed: {str(e)}"
+                db.session.commit()
                 print(f"[ERROR] Failed to process appt {appt.id}: {e}")
 
 @celery_app.task(name="tasks.sync_appointment_statuses")

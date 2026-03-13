@@ -1,5 +1,12 @@
 import api from '@/services/interceptor'
 
+/**
+ * API Service Module
+ * ------------------
+ * Centralized service for all patient-related API interactions.
+ * Handles authentication headers automatically via interceptors.
+ */
+
 const API_BASE = (api.defaults.baseURL || '').replace(/\/$/, '')
 
 export async function getDashboardData() {

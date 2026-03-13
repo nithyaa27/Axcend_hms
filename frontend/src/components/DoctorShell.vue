@@ -18,7 +18,14 @@
       </nav>
 
       <div class="sidebar-footer">
-        <button class="btn btn-ghost btn-sm logout-btn" type="button" @click="doLogout">
+        <div class="user-pill" @click="$emit('profile')">
+          <div class="avatar">{{ initial }}</div>
+          <div class="user-pill-info">
+            <div class="user-pill-name">{{ doctorName || 'Loading…' }}</div>
+            <div class="user-pill-role">Doctor</div>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm logout-btn" style="width:100%;margin-top:10px;justify-content:center;" type="button" @click="doLogout">
           <i class="bi bi-box-arrow-right"></i> Logout
         </button>
       </div>
@@ -27,13 +34,8 @@
     <div class="doctor-main">
       <header class="doctor-topbar">
         <slot name="header-left" />
-        <button class="doctor-chip" type="button" @click="$emit('profile')">
-          <div class="doctor-avatar">{{ initial }}</div>
-          <div class="doctor-meta">
-            <div class="doctor-name">{{ doctorName }}</div>
-            <div class="doctor-role">Doctor</div>
-          </div>
-        </button>
+        <div class="topbar-right">
+        </div>
       </header>
 
       <main class="doctor-content">
@@ -181,37 +183,61 @@ export default {
   padding: 0 22px;
 }
 
-.doctor-chip {
-  border: 0;
-  background: transparent;
+.topbar-right {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0;
 }
 
-.doctor-avatar {
-  width: 32px;
-  height: 32px;
+.user-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+  width: 100%;
+  border: none;
+  text-align: left;
+}
+.user-pill:hover {
+  background: #f1f5f9;
+}
+.avatar {
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: #2563eb;
-  color: #ffffff;
+  background: var(--blue, #2563eb);
+  color: white;
   font-weight: 700;
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
-
-.doctor-name {
-  font-size: 14px;
-  font-weight: 600;
-  text-align: left;
+.avatar.sm {
+  width: 40px;
+  height: 40px;
+  font-size: 16px;
 }
-
-.doctor-role {
+.user-pill-info {
+  flex: 1;
+  overflow: hidden;
+}
+.user-pill-name {
   font-size: 13px;
-  color: #6b7280;
-  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #111827;
+}
+.user-pill-role {
+  font-size: 11px;
+  color: #64748b;
 }
 
 .doctor-content {
@@ -242,7 +268,7 @@ export default {
 
 .sidebar-footer {
   margin-top: auto;
-  padding: 16px 6px 0;
+  padding: 16px 20px;
   border-top: 1px solid #e5e7eb;
 }
 
@@ -272,12 +298,6 @@ export default {
 .btn-sm {
   padding: 5px 12px;
   font-size: 12px;
-}
-
-.logout-btn {
-  width: 100%;
-  justify-content: center;
-  margin-top: 10px;
 }
 
 .logout-btn i {

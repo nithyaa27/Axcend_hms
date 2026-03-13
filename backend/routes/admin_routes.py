@@ -11,12 +11,22 @@ from utils.email_utils import send_doctor_password_email
 from werkzeug.security import generate_password_hash, check_password_hash
 from utils.network_utils import get_actual_frontend_url
 
+# ==========================================
+# Admin Routes Blueprint
+# ==========================================
+# This module contains the administrative functions for the HMS,
+# including managing departments, doctors, patients, and appointments.
+
 admin_bp = Blueprint("admin_bp", __name__)
 
 
 
 @admin_bp.before_request
 def require_admin():
+    """
+    Verification middleware: Ensures that any request hitting this blueprint
+    is authenticated and belongs to an 'admin' user.
+    """
     if not g.user:
         msg = getattr(g, "auth_error", "Authentication required")
         return jsonify({"message": msg}), 401
@@ -30,6 +40,10 @@ def require_admin():
 
 @admin_bp.route("/api/admin/dashboard", methods=["GET"])
 def admin_dashboard():
+    """
+    Returns high-level statistics (totals) for the admin dashboard overview.
+    """
+    
     return jsonify({
         "total_doctors": Doctor.query.count(),
         "total_departments": Department.query.count(),
@@ -40,6 +54,10 @@ def admin_dashboard():
 
 @admin_bp.route("/api/departments", methods=["GET"])
 def get_departments():
+    """
+    Lists all hospital departments, including metadata like doctor count.
+    """
+    departments = Department.query.order_by(Department.id.desc()).all()
     departments = Department.query.order_by(Department.id.desc()).all()
     return jsonify([
         {
@@ -56,6 +74,10 @@ def get_departments():
 
 @admin_bp.route("/api/add_department", methods=["POST"])
 def add_department():
+    """
+    Creates a new hospital department. Validates the name for duplicates and characters.
+    """
+    data = request.get_json() or {}
     data = request.get_json() or {}
     name = (data.get("name") or "").strip()
     description = (data.get("description") or "").strip()
@@ -81,6 +103,10 @@ def add_department():
 
 @admin_bp.route("/api/update_department/<int:department_id>", methods=["PUT"])
 def update_department(department_id):
+    """
+    Updates details of an existing department.
+    """
+    department = db.session.get(Department, department_id)
     department = db.session.get(Department, department_id)
     if not department:
         return jsonify({"error": "Department not found"}), 404
@@ -114,6 +140,11 @@ def update_department(department_id):
 
 @admin_bp.route("/api/delete_department/<int:department_id>", methods=["DELETE"])
 def delete_department(department_id):
+    """
+    Removes a department from the database. 
+    Prevents deletion if doctors are still assigned to the department.
+    """
+    department = db.session.get(Department, department_id)
     department = db.session.get(Department, department_id)
     if not department:
         return jsonify({"error": "Department not found"}), 404
@@ -128,6 +159,10 @@ def delete_department(department_id):
 
 @admin_bp.route("/api/admin/doctors", methods=["GET"])
 def get_admin_doctors():
+    """
+    Returns a comprehensive list of all doctors for the admin view.
+    """
+    doctors = Doctor.query.order_by(Doctor.id.desc()).all()
     doctors = Doctor.query.order_by(Doctor.id.desc()).all()
     return jsonify([
         {
@@ -147,6 +182,11 @@ def get_admin_doctors():
 
 @admin_bp.route("/api/add_doctor", methods=["POST"])
 def add_doctor():
+    """
+    Onboards a new doctor. Validates all inputs and sends an automated
+    email to the doctor to set their login password.
+    """
+    data = request.get_json() or {}
     data = request.get_json() or {}
 
     name = (data.get("name") or "").strip()
@@ -206,6 +246,10 @@ def add_doctor():
 
 @admin_bp.route("/api/update_doctor/<int:doctor_id>", methods=["PUT"])
 def update_doctor(doctor_id):
+    """
+    Updates a doctor's profile information and assignment.
+    """
+    data = request.get_json() or {}
     data = request.get_json() or {}
 
     if not all([
@@ -267,6 +311,10 @@ def update_doctor(doctor_id):
 
 @admin_bp.route("/api/delete_doctor/<int:doctor_id>", methods=["DELETE"])
 def delete_doctor(doctor_id):
+    """
+    Removes a doctor record from the system.
+    """
+    doctor = db.session.get(Doctor, doctor_id)
     doctor = db.session.get(Doctor, doctor_id)
     if not doctor:
         return jsonify({"error": "Doctor not found"}), 404
@@ -278,6 +326,10 @@ def delete_doctor(doctor_id):
 
 @admin_bp.route("/api/admin/resend-doctor-password/<int:id>", methods=["POST"])
 def resend_doctor_password(id):
+    """
+    Triggers a fresh password setup email to the doctor.
+    """
+    doctor = Doctor.query.get(id)
 
     doctor = Doctor.query.get(id)
     if not doctor:
@@ -307,6 +359,10 @@ def get_doctor_password_link(doctor_id):
 
 @admin_bp.route("/api/admin/patients", methods=["GET"])
 def get_admin_patients():
+    """
+    Lists all registered patients for administrative management.
+    """
+    patients = Patient.query.filter_by(role="patient").order_by(Patient.id.desc()).all()
     patients = Patient.query.filter_by(role="patient").order_by(Patient.id.desc()).all()
     return jsonify([
         {
@@ -325,6 +381,10 @@ def get_admin_patients():
 
 @admin_bp.route("/api/admin/patients", methods=["POST"])
 def add_patient_admin():
+    """
+    Allows admin to manually register a patient. Generates a unique Patient UID.
+    """
+    from werkzeug.security import generate_password_hash
     from werkzeug.security import generate_password_hash
     import uuid
 
@@ -415,6 +475,10 @@ def delete_patient(patient_id):
 
 @admin_bp.route("/api/admin/appointments", methods=["GET"])
 def get_admin_appointments():
+    """
+    Fetches all appointments across the entire system.
+    """
+    appointments = Appointment.query.order_by(Appointment.id.desc()).all()
     appointments = Appointment.query.order_by(Appointment.id.desc()).all()
     return jsonify([
         {
