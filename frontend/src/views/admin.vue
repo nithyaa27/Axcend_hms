@@ -45,6 +45,14 @@
         </button>
       </nav>
 
+      <button 
+  @click="tab = 'settings'" 
+  class="nav-item" 
+  :class="{ active: tab === 'settings' }"
+>
+  <i class="bi bi-gear"></i> Settings
+</button>
+
       <div class="sidebar-bottom">
         <div class="user-pill">
           <div class="avatar">{{ adminInitial }}</div>
@@ -334,7 +342,52 @@
           </table>
         </div>
       </div>
-    </main>
+  
+
+  <!-- SETTINGS TAB -->
+<div v-if="tab === 'settings'" class="space-y-8">
+
+  <div>
+    <h1>Reminder Settings</h1>
+    <p class="text-gray-500">Configure system reminders</p>
+  </div>
+
+  <!-- Daily Reminder -->
+  <div class="table-card">
+    <div class="table-header flex-between">
+      <h2 class="text-2xl font-semibold">Daily Reminder</h2>
+
+      <label class="switch">
+        <input type="checkbox" v-model="dailyToggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div v-if="dailyToggle" style="padding:20px; display:flex; gap:10px;">
+      <input type="time" class="form-input">
+      <button class="btn-primary">Save</button>
+    </div>
+  </div>
+
+  <!-- Monthly Reminder -->
+  <div class="table-card">
+    <div class="table-header flex-between">
+      <h2 class="text-2xl font-semibold">Monthly Reminder</h2>
+
+      <label class="switch">
+        <input type="checkbox" v-model="monthlyToggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div v-if="monthlyToggle" style="padding:20px; display:flex; gap:10px;">
+      <input type="date" class="form-input" :min="todayDate">
+      <button class="btn-primary">Save</button>
+    </div>
+  </div>
+
+</div>
+</main>
 
     <!-- MODALS -->
     
@@ -424,6 +477,8 @@ export default {
   data() {
     return {
       tab: "dashboard",
+      dailyToggle: false,
+      monthlyToggle: false,
       error: "",
       successMessage: "",
       stats: {
@@ -458,9 +513,13 @@ export default {
     }
   },
   computed: {
-    adminName() {
-      return localStorage.getItem("name") || "Admin"
-    },
+  todayDate() {
+    return new Date().toISOString().split('T')[0]
+  },
+
+  adminName() {
+    return localStorage.getItem("name") || "Admin"
+  },
     adminInitial() {
       return (this.adminName || 'A')[0].toUpperCase()
     },
@@ -628,6 +687,74 @@ export default {
 
 <style scoped>
 /* ---------------- LAYOUT ---------------- */
+
+/* SETTINGS ALIGNMENT FIX */
+.settings-wrapper{
+  width:100%;
+}
+
+.settings-card{
+  width:100%;
+  max-width:900px;
+  background:white;
+  padding:24px;
+  border-radius:16px;
+  box-shadow:0 1px 3px rgba(0,0,0,0.1);
+  margin-bottom:20px;
+}
+
+.settings-title{
+  font-size:22px;
+  font-weight:600;
+}
+
+.settings-body{
+  margin-top:15px;
+  display:flex;
+  gap:10px;
+}
+
+/* toggle */
+.switch{
+  position:relative;
+  display:inline-block;
+  width:46px;
+  height:24px;
+}
+
+.switch input{
+  display:none;
+}
+
+.slider{
+  position:absolute;
+  background:#ccc;
+  border-radius:20px;
+  top:0;
+  left:0;
+  right:0;
+  bottom:0;
+}
+
+.slider:before{
+  position:absolute;
+  content:"";
+  height:18px;
+  width:18px;
+  left:3px;
+  bottom:3px;
+  background:white;
+  border-radius:50%;
+  transition:0.3s;
+}
+
+input:checked + .slider{
+  background:#2563eb;
+}
+
+input:checked + .slider:before{
+  transform:translateX(22px);
+}
 .layout {
   display: flex;
   height: 100vh;
@@ -641,6 +768,26 @@ export default {
   --muted: #6b7280;
 }
 
+.sidebar-item{
+display:flex;
+align-items:center;
+gap:8px;
+padding:12px 16px;
+border-radius:10px;
+color:#374151;
+text-decoration:none;
+font-weight:500;
+transition:0.2s;
+}
+
+.sidebar-item:hover{
+background:#f3f4f6;
+}
+
+.sidebar-item.router-link-active{
+background:#3b82f6;
+color:white;
+}
 .sidebar {
   width: 260px;
   background: #f3f6fb;
