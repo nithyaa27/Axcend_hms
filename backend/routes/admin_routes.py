@@ -3,7 +3,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, g
 
 from extensions import db
-from models.appointment import Appointment, AppointmentStatus
+from models.appointment import Appointment, AppointmentStatus, derive_persisted_appointment_status
 from models.models import Department, Doctor
 from models.patient import Patient
 from utils.token_utils import generate_doctor_password_token
@@ -417,6 +417,17 @@ def delete_patient(patient_id):
 @admin_bp.route("/api/admin/appointments", methods=["GET"])
 def get_admin_appointments():
     appointments = Appointment.query.order_by(Appointment.id.desc()).all()
+    changed = False
+    now = datetime.now()
+    for appointment in appointments:
+        new_status = derive_persisted_appointment_status(appointment, now)
+        if appointment.status != new_status:
+            appointment.status = new_status
+            changed = True
+
+    if changed:
+        db.session.commit()
+
     return jsonify([
         {
             "id": a.id,
@@ -427,6 +438,7 @@ def get_admin_appointments():
             "appointment_date": a.appointment_datetime.strftime("%Y-%m-%d") if a.appointment_datetime else "",
             "appointment_time": a.appointment_datetime.strftime("%H:%M") if a.appointment_datetime else "",
             "status": a.status,
+            "status_label": a.status.replace("_", " ").title(),
         }
         for a in appointments
     ])

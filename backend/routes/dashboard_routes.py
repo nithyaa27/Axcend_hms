@@ -4,11 +4,13 @@ import re
 from collections import OrderedDict
 from flask import Response, Blueprint, request, jsonify, g
 from datetime import datetime, timedelta
+from werkzeug.security import check_password_hash
 
 from extensions import db
 from models.patient import Patient
-from models.appointment import Appointment, AppointmentStatus
+from models.appointment import Appointment, AppointmentStatus, derive_persisted_appointment_status
 from models.models import Doctor, DoctorSchedule, Department, Prescription
+from utils.datetime_utils import local_now
 
 dashboard_bp = Blueprint("dashboard_bp", __name__)
 
@@ -49,13 +51,13 @@ def _serialize_prescription(rx):
 
 
 def _derive_appointment_state(apt, now=None):
-    now = now or datetime.now()
+    now = now or local_now()
     dt = apt.appointment_datetime
-    status = apt.status
+    status = apt.status or AppointmentStatus.BOOKED
 
     base = {
-        "display_status": status or AppointmentStatus.BOOKED,
-        "display_label": (status or AppointmentStatus.BOOKED).replace("_", " "),
+        "display_status": status,
+        "display_label": status.replace("_", " "),
         "reschedulable": False,
         "cancelable": False,
         "status_note": "",
@@ -74,6 +76,26 @@ def _derive_appointment_state(apt, now=None):
         base["display_label"] = "Cancelled"
         return base
 
+    if status == AppointmentStatus.NOT_ATTENDED:
+        base["display_status"] = AppointmentStatus.NOT_ATTENDED
+        base["display_label"] = "Not Visited"
+        base["reschedulable"] = True
+        base["cancelable"] = True
+        base["status_note"] = "Appointment time passed today. You can still reschedule or cancel."
+        return base
+
+    if status == AppointmentStatus.NOT_VISITED:
+        base["display_status"] = AppointmentStatus.NOT_VISITED
+        base["display_label"] = "Not Visited"
+        base["status_note"] = "Appointment was missed."
+        return base
+
+    if status == AppointmentStatus.NOT_VISITED_CANCELLED:
+        base["display_status"] = AppointmentStatus.NOT_VISITED_CANCELLED
+        base["display_label"] = "Not Visited Cancelled"
+        base["status_note"] = "Appointment not visited for 2+ days. Marked as cancelled."
+        return base
+
     # For booked appointments, derive missed/not-visited states based on elapsed time.
     if dt >= now:
         base["display_status"] = "booked"
@@ -84,9 +106,10 @@ def _derive_appointment_state(apt, now=None):
 
     if dt.date() == now.date():
         base["display_status"] = "not_attended"
-        base["display_label"] = "Not Attended"
+        base["display_label"] = "Not Visited"
         base["reschedulable"] = True
-        base["status_note"] = "Appointment time passed today. Please reschedule."
+        base["cancelable"] = True
+        base["status_note"] = "Appointment time passed today. You can still reschedule or cancel."
         return base
 
     elapsed = now - dt
@@ -99,6 +122,38 @@ def _derive_appointment_state(apt, now=None):
         base["display_label"] = "Not Visited"
         base["status_note"] = "Appointment was missed."
     return base
+
+
+def _sync_patient_appointment_statuses(patient_id=None):
+    now = local_now()
+    query = Appointment.query
+    if patient_id is not None:
+        query = query.filter(Appointment.patient_id == patient_id)
+
+    appointments = query.all()
+    changed = False
+    for apt in appointments:
+        new_status = derive_persisted_appointment_status(apt, now)
+        if apt.status != new_status:
+            apt.status = new_status
+            changed = True
+
+    if changed:
+        db.session.commit()
+
+    return appointments
+
+
+def _serialize_appointment_reminder(appointment):
+    timestamp = appointment.reminder_email_updated_at or appointment.reminder_email_sent_at or appointment.updated_at
+    return {
+        "id": appointment.id,
+        "message": appointment.reminder_email_message,
+        "type": appointment.reminder_email_status,
+        "is_read": bool(appointment.reminder_email_read),
+        "created_at": timestamp.isoformat() if timestamp else None,
+        "appointment_id": appointment.id,
+    }
 
 
 def _build_simple_pdf(lines):
@@ -300,11 +355,11 @@ def _normalize_medication_item(item):
 
 
 def _build_report_lines(patient, appointments, prescriptions, generated_at):
-    now = datetime.now()
+    now = local_now()
     total = len(appointments)
     upcoming = sum(1 for a in appointments if a.status == AppointmentStatus.BOOKED and a.appointment_datetime and a.appointment_datetime >= now)
     completed = sum(1 for a in appointments if a.status == AppointmentStatus.COMPLETED)
-    cancelled = sum(1 for a in appointments if a.status == AppointmentStatus.CANCELLED)
+    cancelled = sum(1 for a in appointments if a.status in {AppointmentStatus.CANCELLED, AppointmentStatus.NOT_VISITED_CANCELLED})
 
     lines = []
     lines.append(_line(82, "="))
@@ -399,13 +454,13 @@ def _build_report_lines(patient, appointments, prescriptions, generated_at):
 @dashboard_bp.route("/api/dashboard_data")
 
 def get_dashboard_data():
-    now  = datetime.now()
-    apts = Appointment.query.filter_by(patient_id=g.user.id).all()
+    now  = local_now()
+    apts = _sync_patient_appointment_statuses(g.user.id)
 
     total     = len(apts)
     upcoming  = sum(1 for a in apts if a.status == AppointmentStatus.BOOKED    and a.appointment_datetime >= now)
     completed = sum(1 for a in apts if a.status == AppointmentStatus.COMPLETED)
-    cancelled = sum(1 for a in apts if a.status == AppointmentStatus.CANCELLED)
+    cancelled = sum(1 for a in apts if a.status in {AppointmentStatus.CANCELLED, AppointmentStatus.NOT_VISITED_CANCELLED})
 
     return jsonify({
         "status": "success",
@@ -431,7 +486,8 @@ def get_dashboard_data():
 
 def list_appointments():
     tab = request.args.get("tab", "upcoming")
-    now = datetime.now()
+    now = local_now()
+    _sync_patient_appointment_statuses(g.user.id)
     base = Appointment.query.filter_by(patient_id=g.user.id)
 
     if tab == "upcoming":
@@ -493,7 +549,7 @@ def book_appointment():
         return jsonify({"status": "error", "message": "Invalid date/time format"}), 400
 
     # Rule 1: No past bookings
-    if apt_dt < datetime.now():
+    if apt_dt < local_now():
         return jsonify({"status": "error", "message": "Cannot book appointments in the past"}), 400
 
     # Rule 2: Doctor's slot already taken
@@ -532,6 +588,12 @@ def book_appointment():
         doctor_id            = doc.id,
         appointment_datetime = apt_dt,
         status               = AppointmentStatus.BOOKED,
+        reminder_email_status = None,
+        reminder_email_kind = None,
+        reminder_email_message = None,
+        reminder_email_sent_at = None,
+        reminder_email_updated_at = None,
+        reminder_email_read = False,
     )
     db.session.add(new_apt)
     db.session.commit()
@@ -549,8 +611,12 @@ def book_appointment():
 
 def get_appointment(apt_id):
     apt = Appointment.query.filter_by(id=apt_id, patient_id=g.user.id).first_or_404()
+    new_status = derive_persisted_appointment_status(apt, local_now())
+    if apt.status != new_status:
+        apt.status = new_status
+        db.session.commit()
     dt  = apt.appointment_datetime
-    derived = _derive_appointment_state(apt, datetime.now())
+    derived = _derive_appointment_state(apt, local_now())
     return jsonify({
         "status": "success",
         "appointment": {
@@ -580,16 +646,16 @@ def get_appointment(apt_id):
 def cancel_appointment(apt_id):
     apt = Appointment.query.filter_by(id=apt_id, patient_id=g.user.id).first_or_404()
 
-    if apt.status != AppointmentStatus.BOOKED:
+    if apt.status not in {AppointmentStatus.BOOKED, AppointmentStatus.NOT_ATTENDED}:
         return jsonify({"status": "error", "message": f"Cannot cancel a '{apt.status}' appointment"}), 400
 
-    if apt.appointment_datetime and apt.appointment_datetime < datetime.now():
-        return jsonify({
-            "status": "error",
-            "message": "Past appointments cannot be cancelled."
-        }), 400
-
     apt.status = AppointmentStatus.CANCELLED
+    apt.reminder_email_status = None
+    apt.reminder_email_kind = None
+    apt.reminder_email_message = None
+    apt.reminder_email_sent_at = None
+    apt.reminder_email_updated_at = local_now()
+    apt.reminder_email_read = True
     db.session.commit()
     return jsonify({"status": "success", "message": "Appointment cancelled"})
 
@@ -602,10 +668,10 @@ def cancel_appointment(apt_id):
 def reschedule_appointment(apt_id):
     apt = Appointment.query.filter_by(id=apt_id, patient_id=g.user.id).first_or_404()
 
-    if apt.status != AppointmentStatus.BOOKED:
-        return jsonify({"status": "error", "message": "Only booked appointments can be rescheduled"}), 400
+    if apt.status not in {AppointmentStatus.BOOKED, AppointmentStatus.NOT_ATTENDED}:
+        return jsonify({"status": "error", "message": "Only booked or not visited appointments can be rescheduled"}), 400
 
-    now = datetime.now()
+    now = local_now()
     apt_dt = apt.appointment_datetime
     if apt_dt and apt_dt.date() < now.date():
         return jsonify({
@@ -638,6 +704,13 @@ def reschedule_appointment(apt_id):
         return jsonify({"status": "error", "message": "That slot is already taken"}), 409
 
     apt.appointment_datetime = new_dt
+    apt.status = AppointmentStatus.BOOKED
+    apt.reminder_email_status = None
+    apt.reminder_email_kind = None
+    apt.reminder_email_message = None
+    apt.reminder_email_sent_at = None
+    apt.reminder_email_updated_at = local_now()
+    apt.reminder_email_read = False
     db.session.commit()
     return jsonify({"status": "success", "message": "Appointment rescheduled"})
 
@@ -651,7 +724,7 @@ def find_doctors():
     search  = request.args.get("search", "").strip()
     dept_id = request.args.get("department_id", type=int)
     spec    = request.args.get("specialization", "").strip()
-    now     = datetime.now()
+    now     = local_now()
 
     query = Doctor.query
     if search:
@@ -704,10 +777,12 @@ def doctor_slots(doctor_id):
     if not doc:
         return jsonify({"status": "error", "message": "Doctor not found"}), 404
 
-    # Fixed clinical slots every 1 hour for daytime OPD.
+    # Fixed clinical slots extended through the night OPD window.
     all_slots = [
         "9:00 AM","10:00 AM","11:00 AM","12:00 PM",
-        "1:00 PM","2:00 PM","3:00 PM","4:00 PM"
+        "1:00 PM","2:00 PM","3:00 PM","4:00 PM",
+        "5:00 PM","6:00 PM","7:00 PM","8:00 PM",
+        "9:00 PM","10:00 PM","10:30 PM"
     ]
 
     doctor_booked = {
@@ -744,22 +819,22 @@ def doctor_slots(doctor_id):
     has_schedule = len(schedules) > 0
     is_leave = any((s.work_type or "").strip().lower() == "leave" for s in schedules)
 
-    # If no schedule exists, assume 09:00-17:00 working day.
+    # If no schedule exists, assume 09:00-22:30 working day.
     if has_schedule and not is_leave:
         windows = []
         for s in schedules:
             try:
                 start_t = datetime.strptime((s.shift_start or "09:00").strip(), "%H:%M").time()
-                end_t = datetime.strptime((s.shift_end or "17:00").strip(), "%H:%M").time()
+                end_t = datetime.strptime((s.shift_end or "22:30").strip(), "%H:%M").time()
                 windows.append((start_t, end_t))
             except ValueError:
-                windows.append((datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("17:00", "%H:%M").time()))
+                windows.append((datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("22:30", "%H:%M").time()))
     else:
-        windows = [(datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("17:00", "%H:%M").time())]
+        windows = [(datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("22:30", "%H:%M").time())]
 
     lunch_start = datetime.strptime("13:00", "%H:%M").time()
     lunch_end = datetime.strptime("14:00", "%H:%M").time()
-    now_local = datetime.now()
+    now_local = local_now()
 
     result = []
     for s in all_slots:
@@ -823,7 +898,8 @@ def get_prescription_detail(prescription_id):
 
 def download_report():
     p    = g.user
-    now  = datetime.now()
+    now  = local_now()
+    _sync_patient_appointment_statuses(p.id)
     apts = (Appointment.query
             .filter_by(patient_id=p.id)
             .order_by(Appointment.appointment_datetime.desc())
@@ -851,7 +927,8 @@ def download_report():
 @dashboard_bp.route("/api/download_report_pdf")
 def download_report_pdf():
     p    = g.user
-    now  = datetime.now()
+    now  = local_now()
+    _sync_patient_appointment_statuses(p.id)
     apts = (Appointment.query
             .filter_by(patient_id=p.id)
             .order_by(Appointment.appointment_datetime.desc())
@@ -876,8 +953,8 @@ def download_report_pdf():
 
 def download_json():
     p    = g.user
-    now  = datetime.now()
-    apts = Appointment.query.filter_by(patient_id=p.id).all()
+    now  = local_now()
+    apts = _sync_patient_appointment_statuses(p.id)
 
     payload = {
         "exported_at": now.isoformat(),
@@ -891,7 +968,7 @@ def download_json():
             "total":     len(apts),
             "upcoming":  sum(1 for a in apts if a.status == AppointmentStatus.BOOKED and a.appointment_datetime >= now),
             "completed": sum(1 for a in apts if a.status == AppointmentStatus.COMPLETED),
-            "cancelled": sum(1 for a in apts if a.status == AppointmentStatus.CANCELLED),
+            "cancelled": sum(1 for a in apts if a.status in {AppointmentStatus.CANCELLED, AppointmentStatus.NOT_VISITED_CANCELLED}),
         },
         "appointments": [
             {
@@ -913,3 +990,87 @@ def download_json():
 
 
 
+@dashboard_bp.route("/api/notifications", methods=["GET"])
+def list_notifications():
+    appointments = (
+        Appointment.query
+        .filter(
+            Appointment.patient_id == g.user.id,
+            Appointment.reminder_email_status.in_(["success", "error_invalid_email", "error_network"]),
+            Appointment.reminder_email_message.isnot(None)
+        )
+        .order_by(
+            Appointment.reminder_email_updated_at.desc(),
+            Appointment.reminder_email_sent_at.desc(),
+            Appointment.updated_at.desc()
+        )
+        .limit(50)
+        .all()
+    )
+
+    return jsonify({
+        "status": "success",
+        "notifications": [_serialize_appointment_reminder(appointment) for appointment in appointments]
+    })
+
+@dashboard_bp.route("/api/notifications/<int:noti_id>/read", methods=["PATCH"])
+def mark_notification_read(noti_id):
+    appointment = Appointment.query.filter_by(id=noti_id, patient_id=g.user.id).first_or_404()
+    appointment.reminder_email_read = True
+    db.session.commit()
+    return jsonify({"status": "success"})
+
+@dashboard_bp.route("/api/notifications/read-all", methods=["POST"])
+def mark_all_notifications_read():
+    (
+        Appointment.query
+        .filter(
+            Appointment.patient_id == g.user.id,
+            Appointment.reminder_email_status.in_(["success", "error_invalid_email", "error_network"]),
+            Appointment.reminder_email_read.is_(False)
+        )
+        .update({Appointment.reminder_email_read: True}, synchronize_session=False)
+    )
+    db.session.commit()
+    return jsonify({"status": "success"})
+
+
+@dashboard_bp.route("/api/profile/email", methods=["PATCH"])
+def update_patient_email():
+    patient = db.session.get(Patient, g.user.id)
+    if not patient:
+        return jsonify({"message": "Patient not found"}), 404
+
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+
+    if not email:
+        return jsonify({"message": "Email is required"}), 400
+
+    if not password:
+        return jsonify({"message": "Password is required"}), 400
+
+    if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
+        return jsonify({"message": "Please enter a valid email address"}), 400
+
+    if not patient.password or not check_password_hash(patient.password, password):
+        return jsonify({"message": "Incorrect password"}), 401
+
+    existing = Patient.query.filter(
+        db.func.lower(Patient.email) == email,
+        Patient.id != patient.id
+    ).first()
+    if existing:
+        return jsonify({"message": "Email already exists"}), 400
+
+    patient.email = email
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "message": "Email updated successfully",
+        "patient": {
+            "id": patient.id,
+            "email": patient.email,
+        }
+    })

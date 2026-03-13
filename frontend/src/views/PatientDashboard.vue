@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import api, {
   getDashboardData,
   getAppointments,
@@ -11,7 +11,11 @@ import api, {
   getDoctorSlots,
   getPrescriptions,
   downloadReport,
-  downloadReportPdf
+  downloadReportPdf,
+  getNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  updateProfileEmail
 } from '../api/api.js'
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -395,6 +399,9 @@ async function confirmBooking() {
 // ─── Profile Modal ─────────────────────────────────────────────────────────
 
 const showProfileModal = ref(false)
+const profileEmail = ref('')
+const profilePassword = ref('')
+const savingProfile = ref(false)
 
 // ─── Logout ────────────────────────────────────────────────────────────────
 
@@ -405,6 +412,104 @@ async function doLogout() {
   localStorage.removeItem('role')
   localStorage.removeItem('name')
   window.location.href = '/login'
+}
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+
+const notifications     = ref([])
+const showNotiDropdown  = ref(false)
+const notiMenuRef       = ref(null)
+const emailNotifications = computed(() =>
+  notifications.value.filter(n => ['success', 'error_invalid_email', 'error_network'].includes(n.type))
+)
+const unreadNotiCount  = computed(() => emailNotifications.value.filter(n => !n.is_read).length)
+let notificationPollTimer = null
+
+async function loadNotifications() {
+  try {
+    const data = await getNotifications()
+    if (data?.status === 'success') {
+      notifications.value = (data.notifications || []).filter(
+        n => ['success', 'error_invalid_email', 'error_network'].includes(n.type)
+      )
+    }
+  } catch (err) {
+    console.error('Failed to load notifications', err)
+  }
+}
+
+async function markAllRead() {
+  try {
+    await markAllNotificationsRead()
+    notifications.value.forEach(n => n.is_read = true)
+  } catch (err) {
+    showToast('Failed to mark all as read')
+  }
+}
+
+async function closeNotifications() {
+  if (!showNotiDropdown.value) return
+
+  showNotiDropdown.value = false
+  if (unreadNotiCount.value > 0) {
+    await markAllRead()
+  }
+}
+
+function toggleNotifications() {
+  showNotiDropdown.value = !showNotiDropdown.value
+}
+
+function handleDocumentClick(event) {
+  if (!showNotiDropdown.value) return
+  if (notiMenuRef.value?.contains(event.target)) return
+  closeNotifications()
+}
+
+function handleNotificationAction(noti) {
+  if (noti.type === 'error_invalid_email') {
+    profileEmail.value = patient.value.email || ''
+    showProfileModal.value = true
+    showNotiDropdown.value  = false
+  }
+}
+
+function openProfileModal() {
+  profileEmail.value = patient.value.email || ''
+  profilePassword.value = ''
+  showProfileModal.value = true
+}
+
+async function saveProfileEmail() {
+  const email = (profileEmail.value || '').trim().toLowerCase()
+  const password = profilePassword.value || ''
+  if (!email) {
+    showToast('Please enter your email address')
+    return
+  }
+  if (!password) {
+    showToast('Please enter your password')
+    return
+  }
+
+  try {
+    savingProfile.value = true
+    const res = await updateProfileEmail(email, password)
+    if (res?.status === 'success') {
+      patient.value = { ...patient.value, email: res.patient?.email || email }
+      profilePassword.value = ''
+      showToast('Email updated successfully')
+      showProfileModal.value = false
+      loadNotifications()
+    } else {
+      showToast(res?.message || 'Failed to update email')
+    }
+  } catch (err) {
+    if (redirectToLoginIfUnauthorized(err)) return
+    showToast(getErrorMessage(err, 'Failed to update email'))
+  } finally {
+    savingProfile.value = false
+  }
 }
 
 async function handleDownload(type) {
@@ -424,6 +529,16 @@ onMounted(() => {
   loadDashboard()
   loadDoctors()
   loadPrescriptions()
+  loadNotifications()
+  notificationPollTimer = setInterval(loadNotifications, 30000) // Poll every 30s
+  document.addEventListener('click', handleDocumentClick)
+})
+
+onBeforeUnmount(() => {
+  if (notificationPollTimer) {
+    clearInterval(notificationPollTimer)
+  }
+  document.removeEventListener('click', handleDocumentClick)
 })
 </script>
 
@@ -453,7 +568,7 @@ onMounted(() => {
       </button>
     </nav>
     <div class="sidebar-bottom">
-      <div class="user-pill" @click="showProfileModal = true">
+      <div class="user-pill" @click="openProfileModal()">
         <div class="avatar">{{ patientInitial }}</div>
         <div class="user-pill-info">
           <div class="user-pill-name">{{ patient.name || 'Loading…' }}</div>
@@ -474,7 +589,33 @@ onMounted(() => {
         <div class="page-sub">{{ pageSub }}</div>
       </div>
       <div class="topbar-right">
-        <div class="avatar sm" style="cursor:pointer" @click="showProfileModal = true">{{ patientInitial }}</div>
+        <div ref="notiMenuRef" class="noti-menu">
+          <div class="noti-bell-wrapper" @click="toggleNotifications">
+            <i class="bi bi-bell"></i>
+            <span class="noti-badge" v-if="unreadNotiCount > 0">{{ unreadNotiCount }}</span>
+          </div>
+
+          <!-- NOTIFICATION DROPDOWN -->
+          <div v-if="showNotiDropdown" class="noti-dropdown">
+            <div class="noti-header">
+              <span>Notifications</span>
+            </div>
+            <div class="noti-list">
+              <div v-if="emailNotifications.length === 0" class="noti-empty">No email notifications</div>
+              <div v-for="n in emailNotifications" :key="n.id" class="noti-item" :class="{ unread: !n.is_read }">
+                <div class="noti-icon" :class="n.type">
+                  <i :class="n.type === 'success' ? 'bi bi-check-circle' : 'bi bi-exclamation-triangle'"></i>
+                </div>
+                <div class="noti-content">
+                  <div class="noti-msg">{{ n.message }}</div>
+                  <div class="noti-time">{{ new Date(n.created_at).toLocaleString() }}</div>
+                  <button v-if="n.type === 'error_invalid_email'" class="btn btn-ghost btn-xs" @click.stop="handleNotificationAction(n)">Update Email</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="avatar sm" style="cursor:pointer" @click="openProfileModal()">{{ patientInitial }}</div>
       </div>
     </div>
 
@@ -827,7 +968,25 @@ onMounted(() => {
         <div style="font-size:13px;color:var(--muted)">Patient ID: {{ patient.patient_uid }}</div>
       </div>
       <div class="detail-grid">
-        <div class="detail-box"><div class="detail-box-label">Email</div><div class="detail-box-val">{{ patient.email }}</div></div>
+        <div class="detail-box" style="grid-column:1/-1">
+          <div class="detail-box-label">Email</div>
+          <div class="email-edit-row">
+            <input v-model="profileEmail" type="email" class="form-control" placeholder="Enter your email address" />
+            <button class="btn btn-primary btn-sm" @click="saveProfileEmail" :disabled="savingProfile">
+              {{ savingProfile ? 'Saving...' : 'Save Email' }}
+            </button>
+          </div>
+          <div class="password-confirm-row">
+            <input
+              v-model="profilePassword"
+              type="password"
+              class="form-control"
+              placeholder="Enter your current password to confirm"
+              @keydown.enter="saveProfileEmail"
+            />
+          </div>
+          <div class="profile-help-text">Keep this email updated so appointment reminders can reach you.</div>
+        </div>
         <div class="detail-box"><div class="detail-box-label">Gender</div><div class="detail-box-val">{{ patient.gender || 'N/A' }}</div></div>
         <div class="detail-box"><div class="detail-box-label">Patient UID</div><div class="detail-box-val">{{ patient.patient_uid }}</div></div>
       </div>
@@ -880,6 +1039,7 @@ onMounted(() => {
 .page-title { font-family: 'Sora', sans-serif; font-size: 22px; font-weight: 700; }
 .page-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
+.noti-menu { position: relative; }
 
 /* CARDS */
 .card { background: var(--card); border-radius: 16px; border: 1px solid var(--border); padding: 20px 24px; }
@@ -963,6 +1123,9 @@ onMounted(() => {
 .search-bar { display: flex; gap: 10px; align-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px 16px; margin-bottom: 4px; }
 .search-bar input, .search-bar select { border: none; outline: none; font-family: 'DM Sans', sans-serif; font-size: 14px; background: transparent; flex: 1; }
 .search-bar select { max-width: 180px; color: var(--muted); }
+.email-edit-row { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.password-confirm-row { margin-top: 10px; }
+.profile-help-text { margin-top: 8px; font-size: 12px; color: var(--muted); }
 
 /* MODAL */
 .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.45); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 999; }
@@ -1052,7 +1215,38 @@ onMounted(() => {
   .qa-grid,
   .doctor-grid,
   .next-apt-grid { grid-template-columns: 1fr; }
+  .email-edit-row { flex-direction: column; align-items: stretch; }
+  .noti-dropdown { right: -52px; width: min(340px, calc(100vw - 24px)); }
 }
+/* NOTIFICATIONS */
+.noti-bell-wrapper { position: relative; width: 40px; height: 40px; border-radius: 50%; background: var(--card); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--muted); transition: all .2s; }
+.noti-bell-wrapper:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-lt); }
+.noti-bell-wrapper i { font-size: 20px; }
+.noti-badge { position: absolute; top: -2px; right: -2px; background: var(--red); color: white; font-size: 10px; font-weight: 700; min-width: 18px; height: 18px; border-radius: 9px; display: flex; align-items: center; justify-content: center; border: 2px solid var(--card); }
+
+.noti-dropdown { position: absolute; top: calc(100% + 12px); right: 0; width: 340px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,.1); z-index: 1000; overflow: hidden; animation: slideInUp .2s ease; }
+@keyframes slideInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.noti-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--blue-lt); }
+.noti-header span { font-weight: 700; font-size: 14px; color: var(--blue); }
+
+.noti-list { max-height: 400px; overflow-y: auto; }
+.noti-empty { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+.noti-item { display: flex; gap: 14px; padding: 14px 18px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .2s; }
+.noti-item:last-child { border-bottom: none; }
+.noti-item:hover { background: #f8fafc; }
+.noti-item.unread { background: #faf5ff; }
+.noti-item.unread::after { content: ''; width: 6px; height: 6px; background: var(--purple); border-radius: 50%; margin-top: 8px; flex-shrink: 0; }
+
+.noti-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.noti-icon.success { background: var(--green-lt); color: var(--green); }
+.noti-icon.error_invalid_email, .noti-icon.error_network { background: var(--red-lt); color: var(--red); }
+
+.noti-content { flex: 1; overflow: hidden; }
+.noti-msg { font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--text); }
+.noti-time { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.btn-xs { padding: 2px 8px; font-size: 11px; border-radius: 6px; margin-top: 6px; }
+
 </style>
 
 

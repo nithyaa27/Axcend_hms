@@ -87,7 +87,11 @@ export default {
         })
         .then(() => {
           alert("Password reset successfully")
-          this.$router.push("/")
+          localStorage.removeItem("token")
+          localStorage.removeItem("role")
+          localStorage.removeItem("name")
+          localStorage.removeItem("isLoggedIn")
+          this.$router.push("/login")
         })
         .catch(err => {
           alert(err.response?.data?.message || "Reset failed")

@@ -3,12 +3,14 @@ import re
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime
+from sqlalchemy import inspect, text
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from itsdangerous import BadSignature, SignatureExpired
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from extensions import db
+from extensions import db, cache
+from celery_app import celery_app
 from routes.admin_routes import admin_bp
 from routes.dashboard_routes import dashboard_bp
 from routes.auth_routes import auth_bp
@@ -26,6 +28,16 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # Extensions
 db.init_app(app)
 
+# Configure Redis Caching with fallback to SimpleCache if Redis isn't available
+use_redis = os.getenv('USE_REDIS', 'false').lower() == 'true'
+cache_config = {
+    'CACHE_TYPE': 'RedisCache' if use_redis else 'SimpleCache',
+    'CACHE_DEFAULT_TIMEOUT': 300
+}
+if use_redis:
+    cache_config['CACHE_REDIS_URL'] = os.getenv('CACHE_REDIS_URL', 'redis://localhost:6379/2')
+
+cache.init_app(app, config=cache_config)
 CORS(
     app,
     resources={
@@ -178,6 +190,25 @@ def _ensure_default_admin():
     admin_user.role = DEFAULT_ADMIN["role"]
     admin_user.gender = admin_user.gender or DEFAULT_ADMIN["gender"]
     admin_user.patient_uid = admin_user.patient_uid or _next_patient_uid()
+    db.session.commit()
+
+
+def _ensure_appointment_reminder_columns():
+    inspector = inspect(db.engine)
+    columns = {column["name"] for column in inspector.get_columns("appointments")}
+    additions = [
+        ("reminder_email_status", "ALTER TABLE appointments ADD COLUMN reminder_email_status VARCHAR(50)"),
+        ("reminder_email_kind", "ALTER TABLE appointments ADD COLUMN reminder_email_kind VARCHAR(20)"),
+        ("reminder_email_message", "ALTER TABLE appointments ADD COLUMN reminder_email_message TEXT"),
+        ("reminder_email_sent_at", "ALTER TABLE appointments ADD COLUMN reminder_email_sent_at DATETIME"),
+        ("reminder_email_updated_at", "ALTER TABLE appointments ADD COLUMN reminder_email_updated_at DATETIME"),
+        ("reminder_email_read", "ALTER TABLE appointments ADD COLUMN reminder_email_read BOOLEAN DEFAULT 0 NOT NULL"),
+    ]
+
+    for column_name, ddl in additions:
+        if column_name not in columns:
+            db.session.execute(text(ddl))
+
     db.session.commit()
 
 def _build_login_response(user):
@@ -427,7 +458,20 @@ app.register_blueprint(doctor_bp)
 # Create tables
 with app.app_context():
     db.create_all()
+    _ensure_appointment_reminder_columns()
     _ensure_default_admin()
+
+@app.route('/api/test/celery/reminders', methods=['POST'])
+def test_celery_reminders():
+    from tasks import send_patient_reminders_task
+    task = send_patient_reminders_task.delay()
+    return jsonify({'status': 'success', 'task_id': task.id, 'message': 'Patient reminder task queued for testing'})
+
+@app.route('/api/test/celery/today_reminders', methods=['POST'])
+def test_celery_today_reminders():
+    from tasks import send_today_reminders_task
+    task = send_today_reminders_task.delay()
+    return jsonify({'status': 'success', 'task_id': task.id, 'message': "Today's reminder task queued for testing"})
 
 if __name__ == "__main__":
     debug_mode = os.getenv("FLASK_DEBUG", "1") == "1"

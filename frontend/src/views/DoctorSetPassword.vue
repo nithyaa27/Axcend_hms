@@ -100,6 +100,10 @@ export default {
         })
         this.success = true
         setTimeout(() => {
+          localStorage.removeItem("token")
+          localStorage.removeItem("role")
+          localStorage.removeItem("name")
+          localStorage.removeItem("isLoggedIn")
           this.$router.push("/login")
         }, 3000)
       } catch (err) {

@@ -313,7 +313,7 @@
                 <td>{{ a.appointment_date }}</td>
                 <td>{{ a.appointment_time }}</td>
                 <td>
-                  <span class="status-pill" :class="a.status">{{ a.status }}</span>
+                  <span class="status-pill" :class="a.status">{{ a.status_label || a.status }}</span>
                 </td>
               </tr>
               <tr v-if="filteredAppointments.length === 0">

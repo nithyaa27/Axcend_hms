@@ -50,8 +50,8 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  // allow doctor set password page always (even if logged in)
-  if (to.path.startsWith('/doctor-set-password')) {
+  // Allow password-action links even if someone is already logged in.
+  if (to.path.startsWith('/doctor-set-password') || to.path.startsWith('/reset/')) {
     return
   }
 
@@ -60,10 +60,7 @@ router.beforeEach((to) => {
   const target = defaultRouteForRole(role)
   const publicPaths = ['/login', '/register', '/forgot', '/reset-info']
 
-  if (
-    (publicPaths.includes(to.path) || to.path.startsWith('/reset/')) &&
-    isLoggedIn
-  ) {
+  if (publicPaths.includes(to.path) && isLoggedIn) {
     return target
   }
 

@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    restart: always
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - TZ=Asia/Kolkata
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+      - FRONTEND_PUBLIC_URL=${FRONTEND_PUBLIC_URL:-http://localhost:5173}
+      - USE_REDIS=true
+      - CACHE_REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - HMS_SMTP_HOST=smtp.gmail.com
+      - HMS_SMTP_PORT=587
+      - HMS_SMTP_USER=hmsproject26@gmail.com
+      - HMS_SMTP_APP_PASSWORD=lfynpsyxnqvjiypd
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+    command: python app.py
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - TZ=Asia/Kolkata
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - HMS_SMTP_HOST=smtp.gmail.com
+      - HMS_SMTP_PORT=587
+      - HMS_SMTP_USER=hmsproject26@gmail.com
+      - HMS_SMTP_APP_PASSWORD=lfynpsyxnqvjiypd
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+    command: celery -A celery_app.celery_app worker --loglevel=info -P gevent
+
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - TZ=Asia/Kolkata
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - HMS_SMTP_HOST=smtp.gmail.com
+      - HMS_SMTP_PORT=587
+      - HMS_SMTP_USER=hmsproject26@gmail.com
+      - HMS_SMTP_APP_PASSWORD=lfynpsyxnqvjiypd
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+    command: celery -A celery_app.celery_app beat --loglevel=info

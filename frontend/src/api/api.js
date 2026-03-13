@@ -59,6 +59,26 @@ export async function getPrescriptionDetail(prescriptionId) {
   return res.data
 }
 
+export async function getNotifications() {
+  const res = await api.get('/api/notifications')
+  return res.data
+}
+
+export async function markNotificationRead(notiId) {
+  const res = await api.patch(`/api/notifications/${notiId}/read`)
+  return res.data
+}
+
+export async function markAllNotificationsRead() {
+  const res = await api.post('/api/notifications/read-all')
+  return res.data
+}
+
+export async function updateProfileEmail(email, password) {
+  const res = await api.patch('/api/profile/email', { email, password })
+  return res.data
+}
+
 export async function downloadReport() {
   const res = await api.get('/api/download_report', { responseType: 'blob' })
   _triggerDownload(res)

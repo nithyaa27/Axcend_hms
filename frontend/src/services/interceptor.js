@@ -1,7 +1,9 @@
 import axios from 'axios'
 import router from '@/router'
 
-const defaultBaseURL = '' // use relative URL by default so Vite proxy catches it
+// When teammates open the frontend on another device, the browser must call
+// the backend on this machine's LAN IP instead of that device's localhost.
+const defaultBaseURL = ''
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || defaultBaseURL,
