@@ -1,0 +1,182 @@
+<mxfile host="app.diagrams.net" modified="2026-03-13T00:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="hms-full-architecture" name="HMS Full Architecture">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="HMS Full Architecture - Easy View" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=24;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="560" y="20" width="480" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="users" value="Users" style="swimlane;html=1;rounded=1;strokeColor=#1F2937;fillColor=#F9FAFB;fontSize=18;fontStyle=1;horizontal=1;startSize=30;" vertex="1" parent="1">
+          <mxGeometry x="30" y="100" width="220" height="300" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="patient" value="Patient" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;fontSize=14;" vertex="1" parent="users">
+          <mxGeometry x="20" y="50" width="140" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="doctor" value="Doctor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontSize=14;" vertex="1" parent="users">
+          <mxGeometry x="20" y="120" width="140" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="admin" value="Admin" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE7F3;strokeColor=#DB2777;fontSize=14;" vertex="1" parent="users">
+          <mxGeometry x="20" y="190" width="140" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="frontend" value="Frontend (Vue App)" style="swimlane;html=1;rounded=1;strokeColor=#1F2937;fillColor=#F9FAFB;fontSize=18;fontStyle=1;horizontal=1;startSize=30;" vertex="1" parent="1">
+          <mxGeometry x="300" y="100" width="340" height="720" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="sharedauth" value="Shared Auth Screens&#xa;Login / Register / Forgot / Reset" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#2563EB;fontSize=14;" vertex="1" parent="frontend">
+          <mxGeometry x="20" y="50" width="270" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="routeguard" value="Vue Router Guard&#xa;Checks login state and role route" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0F2FE;strokeColor=#0284C7;fontSize=14;" vertex="1" parent="frontend">
+          <mxGeometry x="20" y="160" width="270" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="patientui" value="Patient Module&#xa;Dashboard, appointments, doctors, prescriptions, reports" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;fontSize=14;" vertex="1" parent="frontend">
+          <mxGeometry x="20" y="270" width="270" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="doctorui" value="Doctor Module&#xa;Dashboard, schedule, appointment detail, treatment" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontSize=14;" vertex="1" parent="frontend">
+          <mxGeometry x="20" y="390" width="270" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="adminui" value="Admin Module&#xa;Departments, doctors, patients, appointments" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE7F3;strokeColor=#DB2777;fontSize=14;" vertex="1" parent="frontend">
+          <mxGeometry x="20" y="510" width="270" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="clientapi" value="Axios / Interceptor&#xa;Adds Bearer JWT token" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#4B5563;fontSize=14;" vertex="1" parent="frontend">
+          <mxGeometry x="20" y="640" width="270" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="backend" value="Backend (Flask)" style="swimlane;html=1;rounded=1;strokeColor=#1F2937;fillColor=#FFFFFF;fontSize=18;fontStyle=1;horizontal=1;startSize=30;" vertex="1" parent="1">
+          <mxGeometry x="700" y="100" width="420" height="720" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="jwt" value="JWT Middleware&#xa;before_request decodes token and loads g.user" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#7C3AED;fontSize=14;" vertex="1" parent="backend">
+          <mxGeometry x="30" y="50" width="340" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="authapi" value="Auth Layer&#xa;login, register, forgot password, reset password, me" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#2563EB;fontSize=14;" vertex="1" parent="backend">
+          <mxGeometry x="30" y="150" width="340" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="patientapi" value="Patient Blueprint&#xa;patient business APIs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;fontSize=14;" vertex="1" parent="backend">
+          <mxGeometry x="30" y="270" width="340" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="doctorapi" value="Doctor Blueprint&#xa;doctor dashboard and treatment APIs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontSize=14;" vertex="1" parent="backend">
+          <mxGeometry x="30" y="360" width="340" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="adminapi" value="Admin Blueprint&#xa;admin management APIs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE7F3;strokeColor=#DB2777;fontSize=14;" vertex="1" parent="backend">
+          <mxGeometry x="30" y="450" width="340" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="logic" value="Shared Business Logic&#xa;role checks&#xa;appointment rules&#xa;password setup links&#xa;report generation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#4B5563;fontSize=14;" vertex="1" parent="backend">
+          <mxGeometry x="30" y="550" width="340" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="database" value="Database" style="swimlane;html=1;rounded=1;strokeColor=#1F2937;fillColor=#FFFBEB;fontSize=18;fontStyle=1;horizontal=1;startSize=30;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="120" width="300" height="320" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="tables" value="Patient&#xa;Doctor&#xa;Department&#xa;Appointment&#xa;Prescription&#xa;Doctor Schedule / Availability" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEFCE8;strokeColor=#CA8A04;fontSize=14;" vertex="1" parent="database">
+          <mxGeometry x="20" y="50" width="240" height="200" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="workers" value="Celery + Beat Workers" style="swimlane;html=1;rounded=1;strokeColor=#1F2937;fillColor=#F8FAFC;fontSize=18;fontStyle=1;horizontal=1;startSize=30;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="500" width="330" height="280" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="beat" value="Beat Scheduler&#xa;every minute / daily" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#7C3AED;fontSize=14;" vertex="1" parent="workers">
+          <mxGeometry x="20" y="40" width="260" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="statussync" value="Status Sync Task&#xa;updates appointment status over time" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;fontSize=14;" vertex="1" parent="workers">
+          <mxGeometry x="20" y="120" width="260" height="55" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="patientrem" value="Patient Reminder Tasks&#xa;queue and send reminder emails" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#2563EB;fontSize=14;" vertex="1" parent="workers">
+          <mxGeometry x="20" y="190" width="260" height="55" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="doctorsched" value="Doctor Schedule Task&#xa;generate PDF and send to doctor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontSize=14;" vertex="1" parent="workers">
+          <mxGeometry x="20" y="260" width="260" height="55" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e1" edge="1" parent="1" source="patient" target="sharedauth" style="endArrow=block;strokeWidth=2;strokeColor=#16A34A;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="doctor" target="sharedauth" style="endArrow=block;strokeWidth=2;strokeColor=#D97706;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="admin" target="sharedauth" style="endArrow=block;strokeWidth=2;strokeColor=#DB2777;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="sharedauth" target="authapi" style="endArrow=block;strokeWidth=2;strokeColor=#2563EB;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="routeguard" target="clientapi" style="endArrow=block;strokeWidth=2;strokeColor=#0284C7;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="patientui" target="clientapi" style="endArrow=block;strokeWidth=2;strokeColor=#16A34A;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="doctorui" target="clientapi" style="endArrow=block;strokeWidth=2;strokeColor=#D97706;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="adminui" target="clientapi" style="endArrow=block;strokeWidth=2;strokeColor=#DB2777;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="clientapi" target="jwt" style="endArrow=block;strokeWidth=2;strokeColor=#4B5563;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="jwt" target="logic" style="endArrow=block;strokeWidth=2;strokeColor=#7C3AED;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="logic" target="patientapi" style="endArrow=block;strokeWidth=2;strokeColor=#16A34A;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="logic" target="doctorapi" style="endArrow=block;strokeWidth=2;strokeColor=#D97706;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="logic" target="adminapi" style="endArrow=block;strokeWidth=2;strokeColor=#DB2777;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="authapi" target="tables" style="endArrow=block;strokeWidth=2;strokeColor=#2563EB;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="1" source="patientapi" target="tables" style="endArrow=block;strokeWidth=2;strokeColor=#16A34A;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="doctorapi" target="tables" style="endArrow=block;strokeWidth=2;strokeColor=#D97706;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e17" edge="1" parent="1" source="adminapi" target="tables" style="endArrow=block;strokeWidth=2;strokeColor=#DB2777;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e18" edge="1" parent="1" source="beat" target="statussync" style="endArrow=block;strokeWidth=2;strokeColor=#7C3AED;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="beat" target="patientrem" style="endArrow=block;strokeWidth=2;strokeColor=#7C3AED;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e20" edge="1" parent="1" source="beat" target="doctorsched" style="endArrow=block;strokeWidth=2;strokeColor=#7C3AED;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e21" edge="1" parent="1" source="statussync" target="tables" style="endArrow=block;strokeWidth=2;strokeColor=#16A34A;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e22" edge="1" parent="1" source="patientrem" target="tables" style="endArrow=block;strokeWidth=2;strokeColor=#2563EB;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="doctorsched" target="tables" style="endArrow=block;strokeWidth=2;strokeColor=#D97706;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
