@@ -12,7 +12,7 @@ def _send_email_sync(msg):
     except Exception as e:
         print(f"Failed to send email: {e}")
 
-def send_doctor_password_email(email, token, frontend_base="http://localhost:5173"):
+def send_doctor_password_email(email, token, frontend_base=""):
 
     link = f"{frontend_base}/doctor-set-password/{token}"
 

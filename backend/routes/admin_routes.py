@@ -237,7 +237,7 @@ def add_doctor():
 
     token = generate_doctor_password_token(new_doc.id)
 
-    origin = request.headers.get("Origin", "http://localhost:5173")
+    origin = request.headers.get("Origin", "")
     frontend_base = get_actual_frontend_url(origin)
     send_doctor_password_email(new_doc.email, token, frontend_base)
 
@@ -337,7 +337,7 @@ def resend_doctor_password(id):
 
     token = generate_doctor_password_token(doctor.id)
 
-    origin = request.headers.get("Origin", "http://localhost:5173")
+    origin = request.headers.get("Origin", "")
     frontend_base = get_actual_frontend_url(origin)
     send_doctor_password_email(doctor.email, token, frontend_base)
 

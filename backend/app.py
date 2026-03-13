@@ -326,7 +326,7 @@ def forgot_password():
     token = get_serializer().dumps({"email": email})
     
     # Use dynamic IP detection for the frontend URL
-    origin = request.headers.get("Origin", "http://localhost:5173")
+    origin = request.headers.get("Origin", "")
     frontend_base = get_actual_frontend_url(origin).rstrip("/")
     reset_link = f"{frontend_base}/reset/{token}"
 
@@ -537,4 +537,5 @@ with app.app_context():
 
 if __name__ == "__main__":
     debug_mode = os.getenv("FLASK_DEBUG", "1") == "1"
-    app.run(debug=debug_mode, host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=debug_mode, host="0.0.0.0", port=port)
