@@ -13,7 +13,7 @@ import DoctorDashboardView from '@/views/DoctorDashboard.vue'
 import DoctorSetPasswordView from '@/views/DoctorSetPassword.vue'
 import DoctorPatientHistoryView from '@/views/DoctorPatientHistory.vue'
 import DoctorAppointmentDetailView from '@/views/DoctorAppointmentDetail.vue'
-
+import SettingsView from '@/views/Settings.vue'
 
 function defaultRouteForRole(role) {
   if (role === 'admin') return '/admin'
@@ -45,7 +45,7 @@ const router = createRouter({
     { path: '/doctor/patients', component: DoctorPatientHistoryView, meta: { requiresAuth: true } },
     { path: '/doctor/appointment/:appointmentRef', component: DoctorAppointmentDetailView, meta: { requiresAuth: true } },
     { path: '/admin', component: AdminView, meta: { requiresAuth: true } },
-
+    { path: '/settings', component: SettingsView, meta: { requiresAuth: true } },
   ]
 })
 
