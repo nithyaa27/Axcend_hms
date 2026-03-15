@@ -364,8 +364,8 @@
     </div>
 
     <div v-if="dailyToggle" style="padding:20px; display:flex; gap:10px;">
-      <input type="time" class="form-input">
-      <button class="btn-primary">Save</button>
+      <input type="time" class="form-input" v-model="dailyTime">
+      <button class="btn-primary" @click="saveReminderSettings">Save</button>
     </div>
   </div>
 
@@ -381,8 +381,9 @@
     </div>
 
     <div v-if="monthlyToggle" style="padding:20px; display:flex; gap:10px;">
-      <input type="date" class="form-input" :min="todayDate">
-      <button class="btn-primary">Save</button>
+      <input type="date" class="form-input" :min="todayDate" v-model="monthlyDate">
+      <input type="time" class="form-input" v-model="monthlyTime">
+      <button class="btn-primary" @click="saveReminderSettings">Save</button>
     </div>
   </div>
 
@@ -479,6 +480,9 @@ export default {
       tab: "dashboard",
       dailyToggle: false,
       monthlyToggle: false,
+      dailyTime: "09:00",
+      monthlyDate: "",
+      monthlyTime: "09:00",
       error: "",
       successMessage: "",
       stats: {
@@ -546,7 +550,8 @@ export default {
         this.loadDepartments(),
         this.loadDoctors(),
         this.loadPatients(),
-        this.loadAppointments()
+        this.loadAppointments(),
+        this.loadReminderSettings()
       ])
     },
     async loadDashboard() {
@@ -568,6 +573,50 @@ export default {
     async loadAppointments() {
       const res = await api.get("/api/admin/appointments")
       this.appointments = res.data || []
+    },
+    normalizeMonthlyDate(day) {
+      const now = new Date()
+      const year = now.getFullYear()
+      const monthNumber = now.getMonth() + 1
+      const maxDay = new Date(year, monthNumber, 0).getDate()
+      const month = String(monthNumber).padStart(2, "0")
+      const normalizedDay = String(Math.max(1, Math.min(maxDay, Number(day) || 1))).padStart(2, "0")
+      return `${year}-${month}-${normalizedDay}`
+    },
+    async loadReminderSettings() {
+      const res = await api.get("/api/admin/reminder-settings")
+      const settings = res.data || {}
+      this.dailyToggle = Boolean(settings.daily?.enabled)
+      this.dailyTime = settings.daily?.time || "09:00"
+      this.monthlyToggle = Boolean(settings.monthly?.enabled)
+      this.monthlyTime = settings.monthly?.time || "09:00"
+      this.monthlyDate = this.normalizeMonthlyDate(settings.monthly?.day || 1)
+    },
+    async saveReminderSettings() {
+      const monthlyDay = Number(String(this.monthlyDate || "").split("-")[2] || 1)
+      const payload = {
+        daily: {
+          enabled: this.dailyToggle,
+          time: this.dailyTime || "09:00",
+        },
+        monthly: {
+          enabled: this.monthlyToggle,
+          day: monthlyDay,
+          time: this.monthlyTime || "09:00",
+        },
+      }
+      try {
+        const res = await api.put("/api/admin/reminder-settings", payload)
+        const settings = res.data?.settings || payload
+        this.dailyToggle = Boolean(settings.daily?.enabled)
+        this.dailyTime = settings.daily?.time || "09:00"
+        this.monthlyToggle = Boolean(settings.monthly?.enabled)
+        this.monthlyTime = settings.monthly?.time || "09:00"
+        this.monthlyDate = this.normalizeMonthlyDate(settings.monthly?.day || 1)
+        this.notify("Reminder settings saved")
+      } catch (err) {
+        alert(err.response?.data?.error || err.message || "Failed to save reminder settings")
+      }
     },
     openDepartmentModal(dep = null) {
       this.departmentForm = dep

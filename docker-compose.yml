@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: .
+    working_dir: /app/backend
+    command: python app.py
+    volumes:
+      - .:/app
+    ports:
+      - "5000:5000"
+    environment:
+      TZ: Asia/Kolkata
+      HMS_DATABASE_URI: sqlite:////app/backend/instance/hms.db
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_TIMEZONE: Asia/Kolkata
+    depends_on:
+      - redis
+
+  celery_worker:
+    build: .
+    working_dir: /app/backend
+    command: celery -A celery_app.celery_app worker --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      TZ: Asia/Kolkata
+      HMS_DATABASE_URI: sqlite:////app/backend/instance/hms.db
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_TIMEZONE: Asia/Kolkata
+    depends_on:
+      - redis
+      - backend
+
+  celery_beat:
+    build: .
+    working_dir: /app/backend
+    command: celery -A celery_app.celery_app beat --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      TZ: Asia/Kolkata
+      HMS_DATABASE_URI: sqlite:////app/backend/instance/hms.db
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_TIMEZONE: Asia/Kolkata
+    depends_on:
+      - redis
+      - backend

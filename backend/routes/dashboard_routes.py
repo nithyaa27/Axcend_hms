@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from extensions import db
 from models.patient import Patient
 from models.appointment import Appointment, AppointmentStatus
-from models.models import Doctor, DoctorSchedule, Department, Prescription
+from models.models import Doctor, DoctorSchedule, Department, Prescription, PatientReminder
 
 dashboard_bp = Blueprint("dashboard_bp", __name__)
 
@@ -401,6 +401,23 @@ def _build_report_lines(patient, appointments, prescriptions, generated_at):
 def get_dashboard_data():
     now  = datetime.now()
     apts = Appointment.query.filter_by(patient_id=g.user.id).all()
+    reminders = (
+        PatientReminder.query
+        .filter_by(patient_id=g.user.id)
+        .order_by(PatientReminder.sent_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    active_reminders = []
+    for item in reminders:
+        if item.reminder_type == "daily":
+            appointment = item.appointment
+            if not appointment or not appointment.appointment_datetime:
+                continue
+            if appointment.appointment_datetime < now:
+                continue
+        active_reminders.append(item)
 
     total     = len(apts)
     upcoming  = sum(1 for a in apts if a.status == AppointmentStatus.BOOKED    and a.appointment_datetime >= now)
@@ -420,7 +437,18 @@ def get_dashboard_data():
             "name":        g.user.name,
             "email":       g.user.email,
             "gender":      g.user.gender,
-        }
+        },
+        "reminders": [
+            {
+                "id": item.id,
+                "type": item.reminder_type,
+                "title": item.title,
+                "message": item.message,
+                "scheduled_for": item.scheduled_for.isoformat() if item.scheduled_for else None,
+                "sent_at": item.sent_at.isoformat() if item.sent_at else None,
+            }
+            for item in active_reminders
+        ],
     })
 
 

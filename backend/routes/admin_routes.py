@@ -10,6 +10,7 @@ from utils.token_utils import generate_doctor_password_token
 from utils.email_utils import send_doctor_password_email
 from werkzeug.security import generate_password_hash, check_password_hash
 from utils.network_utils import get_actual_frontend_url
+from utils.reminder_utils import get_or_create_reminder_settings, serialize_reminder_settings
 
 admin_bp = Blueprint("admin_bp", __name__)
 
@@ -48,6 +49,52 @@ def admin_dashboard():
         "total_departments": Department.query.count(),
         "total_patients": Patient.query.filter_by(role="patient").count(),
         "total_appointments": Appointment.query.count(),
+    })
+
+
+@admin_bp.route("/api/admin/reminder-settings", methods=["GET"])
+def get_admin_reminder_settings():
+    settings = get_or_create_reminder_settings()
+    return jsonify(serialize_reminder_settings(settings))
+
+
+@admin_bp.route("/api/admin/reminder-settings", methods=["PUT"])
+def update_admin_reminder_settings():
+    data = request.get_json() or {}
+    daily = data.get("daily") or {}
+    monthly = data.get("monthly") or {}
+
+    settings = get_or_create_reminder_settings()
+
+    daily_enabled = bool(daily.get("enabled", settings.daily_enabled))
+    daily_time = str(daily.get("time") or settings.daily_time or "09:00").strip()
+    if daily_enabled and not re.match(r"^\d{2}:\d{2}$", daily_time):
+        return jsonify({"error": "Daily reminder time must be in HH:MM format"}), 400
+
+    monthly_enabled = bool(monthly.get("enabled", settings.monthly_enabled))
+    monthly_day = monthly.get("day", settings.monthly_day)
+    monthly_time = str(monthly.get("time") or settings.monthly_time or "09:00").strip()
+    try:
+        monthly_day = int(monthly_day)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Monthly reminder day must be a number"}), 400
+
+    if monthly_day < 1 or monthly_day > 31:
+        return jsonify({"error": "Monthly reminder day must be between 1 and 31"}), 400
+
+    if monthly_enabled and not re.match(r"^\d{2}:\d{2}$", monthly_time):
+        return jsonify({"error": "Monthly reminder time must be in HH:MM format"}), 400
+
+    settings.daily_enabled = daily_enabled
+    settings.daily_time = daily_time
+    settings.monthly_enabled = monthly_enabled
+    settings.monthly_day = monthly_day
+    settings.monthly_time = monthly_time
+    db.session.commit()
+
+    return jsonify({
+        "message": "Reminder settings saved successfully",
+        "settings": serialize_reminder_settings(settings),
     })
 
 

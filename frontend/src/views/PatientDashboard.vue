@@ -102,14 +102,14 @@ async function loadDashboard() {
     if (!data || data.status !== 'success') return
     patient.value = data.patient
     stats.value   = data.stats
+    const todayStr = new Date().toDateString()
+    todayReminders.value = (data.reminders || []).filter(item =>
+      item.scheduled_for && new Date(item.scheduled_for).toDateString() === todayStr
+    )
 
     const apts = await getAppointments('upcoming')
     if (apts?.appointments) {
       upcomingApts.value = apts.appointments
-      const todayStr = new Date().toDateString()
-      todayReminders.value = apts.appointments.filter(a =>
-        a.date_full && new Date(a.date_full).toDateString() === todayStr
-      )
     }
   } catch (err) {
     if (redirectToLoginIfUnauthorized(err)) return
@@ -520,7 +520,7 @@ onMounted(() => {
             </div>
             <div class="reminder-item" v-for="(r, i) in todayReminders" :key="i">
               <i class="bi bi-bell-fill"></i>
-              <span>Appointment today with <strong>{{ r.doctor }}</strong> at {{ r.time }}</span>
+              <span>{{ r.message }}</span>
             </div>
           </div>
         </div>

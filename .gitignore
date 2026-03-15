@@ -35,3 +35,5 @@ frontend/.env.*.local
 coverage/
 htmlcov/
 
+
+backend/celerybeat-schedule
