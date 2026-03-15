@@ -8,11 +8,18 @@ from datetime import datetime, timedelta
 from extensions import db
 from models.patient import Patient
 from models.appointment import Appointment, AppointmentStatus
-from models.models import Doctor, DoctorSchedule, Department, Prescription, PatientReminder
+from models.models import Doctor, DoctorSchedule, Department, Prescription, PatientReminder, DoctorAvailability
 
 dashboard_bp = Blueprint("dashboard_bp", __name__)
 
 DAILY_BOOKING_LIMIT = 3
+
+
+def _is_doctor_available_on_date(doctor_id, target_date):
+    entry = DoctorAvailability.query.filter_by(doctor_id=doctor_id, date=target_date).first()
+    if entry is None:
+        return True
+    return bool(entry.is_available)
 
 @dashboard_bp.before_request
 def require_login_for_dashboard_api():
@@ -524,6 +531,9 @@ def book_appointment():
     if apt_dt < datetime.now():
         return jsonify({"status": "error", "message": "Cannot book appointments in the past"}), 400
 
+    if not _is_doctor_available_on_date(doc.id, apt_dt.date()):
+        return jsonify({"status": "error", "message": "Doctor is unavailable on the selected day"}), 409
+
     # Rule 2: Doctor's slot already taken
     doctor_clash = Appointment.query.filter_by(
         doctor_id            = doc.id,
@@ -656,6 +666,9 @@ def reschedule_appointment(apt_id):
     if new_dt < now:
         return jsonify({"status": "error", "message": "Cannot reschedule to a past date"}), 400
 
+    if not _is_doctor_available_on_date(apt.doctor_id, new_dt.date()):
+        return jsonify({"status": "error", "message": "Doctor is unavailable on the selected day"}), 409
+
     clash = Appointment.query.filter(
         Appointment.doctor_id            == apt.doctor_id,
         Appointment.appointment_datetime == new_dt,
@@ -732,6 +745,8 @@ def doctor_slots(doctor_id):
     if not doc:
         return jsonify({"status": "error", "message": "Doctor not found"}), 404
 
+    date_specific_available = _is_doctor_available_on_date(doctor_id, target)
+
     # Fixed clinical slots every 1 hour for daytime OPD.
     all_slots = [
         "9:00 AM","10:00 AM","11:00 AM","12:00 PM",
@@ -797,7 +812,9 @@ def doctor_slots(doctor_id):
         is_lunch = lunch_start <= slot_time < lunch_end
         is_past_time = target == now_local.date() and slot_dt <= now_local
 
-        if is_leave:
+        if not date_specific_available:
+            reason = "doctor_off"
+        elif is_leave:
             reason = "doctor_off"
         elif not in_window:
             reason = "outside_schedule"
