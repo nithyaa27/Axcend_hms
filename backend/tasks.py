@@ -70,6 +70,7 @@ def send_email(to_email, subject, body, attachment_name=None, attachment_data=No
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
+<<<<<<< Updated upstream
         print(f"[INFO] Email sent successfully to {to_email}")
         return True, "success"
     except smtplib.SMTPRecipientsRefused:
@@ -78,6 +79,12 @@ def send_email(to_email, subject, body, attachment_name=None, attachment_data=No
     except Exception as exc:
         print(f"[ERROR] Failed to send email to {to_email}: {exc}")
         return False, "error_network"
+=======
+        print(f"[INFO] Email sent to {to_email}")
+    except Exception as e:
+        print(f"[ERROR] Failed to send email to {to_email}: {e}")
+        raise
+>>>>>>> Stashed changes
 
 
 def update_appointment_reminder_status(appointment, message, status_type, reminder_kind=None):

@@ -124,6 +124,7 @@ def _derive_appointment_state(apt, now=None):
     return base
 
 
+<<<<<<< Updated upstream
 def _sync_patient_appointment_statuses(patient_id=None):
     now = local_now()
     query = Appointment.query
@@ -156,6 +157,82 @@ def _serialize_appointment_reminder(appointment):
     }
 
 
+=======
+def _serialize_reminder_email_status(apt, now=None):
+    now = now or datetime.now()
+    dt = apt.appointment_datetime
+    remark = (apt.remark or "").strip()
+    remark_lower = remark.lower()
+
+    if remark_lower.startswith("failed"):
+        return {
+            "state": "failed",
+            "label": "Reminder email failed",
+            "message": "We could not deliver your appointment reminder email. Please update your email address for reminders.",
+            "needs_email_update": True,
+            "sent": False,
+            "remark": remark,
+        }
+
+    if apt.mail_sent:
+        return {
+            "state": "sent",
+            "label": "Reminder email sent",
+            "message": "Reminder email sent successfully. Please check your inbox for your appointment details.",
+            "needs_email_update": False,
+            "sent": True,
+            "remark": remark or "Successfully sent",
+        }
+
+    if dt and dt < now:
+        return {
+            "state": "not_sent",
+            "label": "Reminder unavailable",
+            "message": "No reminder email is available for this past appointment.",
+            "needs_email_update": False,
+            "sent": False,
+            "remark": remark,
+        }
+
+    return {
+        "state": "pending",
+        "label": "Reminder pending",
+        "message": "Reminder email has not been sent yet. It will be sent closer to your appointment time.",
+        "needs_email_update": False,
+        "sent": False,
+        "remark": remark,
+    }
+
+
+def _slot_label_to_datetime(target_date, slot_label):
+    """
+    Maps the slot label used in the UI to the stored appointment datetime.
+    `12:00 AM` is treated as the midnight that closes the selected day.
+    """
+    slot_dt = datetime.strptime(slot_label, "%I:%M %p")
+    slot_time = slot_dt.time()
+    base_date = target_date + timedelta(days=1) if slot_label == "12:00 AM" else target_date
+    return datetime.combine(base_date, slot_time)
+
+
+def _service_day_bounds(target_date):
+    """
+    Returns the logical booking window for a selected date:
+    from just after midnight on the selected date through the midnight closing that day.
+    """
+    day_start = datetime.combine(target_date, datetime.min.time())
+    day_end = day_start + timedelta(days=1)
+    return day_start, day_end
+
+
+def _appointment_slot_label(appointment_dt, target_date):
+    midnight_closing = datetime.combine(target_date + timedelta(days=1), datetime.min.time())
+    if appointment_dt == midnight_closing:
+        return "12:00 AM"
+    return appointment_dt.strftime("%I:%M %p").lstrip("0")
+
+
+>>>>>>> Stashed changes
 def _build_simple_pdf(lines):
     # Minimal single/multi-page PDF generator without external deps.
     pages = []
@@ -479,6 +556,70 @@ def get_dashboard_data():
     })
 
 
+@dashboard_bp.route("/api/patient/profile", methods=["PUT"])
+def update_patient_profile():
+    """
+    Allows the logged-in patient to update their email address used for reminders.
+    """
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+
+    if not email:
+        return jsonify({"status": "error", "message": "Email is required"}), 400
+
+    if not password:
+        return jsonify({"status": "error", "message": "Password is required to update email"}), 400
+
+    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+        return jsonify({"status": "error", "message": "Please enter a valid email address"}), 400
+
+    password_ok = False
+    try:
+        password_ok = check_password_hash(g.user.password, password)
+    except Exception:
+        password_ok = False
+
+    if not password_ok and g.user.password == password:
+        password_ok = True
+
+    if not password_ok:
+        return jsonify({"status": "error", "message": "Incorrect password"}), 401
+
+    existing = Patient.query.filter(
+        db.func.lower(Patient.email) == email,
+        Patient.id != g.user.id
+    ).first()
+    if existing:
+        return jsonify({"status": "error", "message": "Email already exists"}), 400
+
+    email_changed = (g.user.email or "").strip().lower() != email
+    g.user.email = email
+
+    if email_changed:
+        upcoming_appts = Appointment.query.filter(
+            Appointment.patient_id == g.user.id,
+            Appointment.status == AppointmentStatus.BOOKED,
+            Appointment.appointment_datetime >= datetime.now()
+        ).all()
+        for apt in upcoming_appts:
+            apt.mail_sent = False
+            apt.remark = None
+
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "message": "Email updated successfully",
+        "patient": {
+            "patient_uid": g.user.patient_uid,
+            "name": g.user.name,
+            "email": g.user.email,
+            "gender": g.user.gender,
+        }
+    })
+
+
 # ─────────────────────────────────────────
 # API: MY APPOINTMENTS (upcoming / past)
 # ─────────────────────────────────────────
@@ -518,6 +659,7 @@ def list_appointments():
             "reschedulable": derived["reschedulable"],
             "cancelable": derived["cancelable"],
             "status_note": derived["status_note"],
+            "email_reminder": _serialize_reminder_email_status(a, now),
             "doctor":    a.doctor.name           if a.doctor else None,
             "specialty": a.doctor.specialization if a.doctor else None,
         }
@@ -544,7 +686,8 @@ def book_appointment():
         return jsonify({"status": "error", "message": "Doctor not found"}), 404
 
     try:
-        apt_dt = datetime.strptime(f"{date_str} {time_slot}", "%Y-%m-%d %I:%M %p")
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        apt_dt = _slot_label_to_datetime(target_date, time_slot)
     except ValueError:
         return jsonify({"status": "error", "message": "Invalid date/time format"}), 400
 
@@ -571,12 +714,11 @@ def book_appointment():
         return jsonify({"status": "error", "message": f"You already have an appointment at {time_slot}."}), 409
 
     # Rule 4: Max 3 appointments per day
-    day_start = apt_dt.replace(hour=0,  minute=0,  second=0,  microsecond=0)
-    day_end   = apt_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+    day_start, day_end = _service_day_bounds(target_date)
     daily_count = Appointment.query.filter(
         Appointment.patient_id           == g.user.id,
         Appointment.status               == AppointmentStatus.BOOKED,
-        Appointment.appointment_datetime >= day_start,
+        Appointment.appointment_datetime > day_start,
         Appointment.appointment_datetime <= day_end
     ).count()
 
@@ -600,7 +742,7 @@ def book_appointment():
 
     return jsonify({
         "status":  "success",
-        "message": f"Appointment booked with Dr. {doc.name} on {apt_dt.strftime('%B %d, %Y')} at {time_slot}"
+        "message": f"Appointment booked with Dr. {doc.name} on {date_str} at {time_slot}"
     }), 201
 
 
@@ -630,6 +772,7 @@ def get_appointment(apt_id):
             "reschedulable": derived["reschedulable"],
             "cancelable": derived["cancelable"],
             "status_note": derived["status_note"],
+            "email_reminder": _serialize_reminder_email_status(apt),
             "doctor":     apt.doctor.name           if apt.doctor else None,
             "doctor_id":  apt.doctor_id,
             "specialty":  apt.doctor.specialization if apt.doctor else None,
@@ -687,7 +830,8 @@ def reschedule_appointment(apt_id):
         return jsonify({"status": "error", "message": "date and time_slot required"}), 400
 
     try:
-        new_dt = datetime.strptime(f"{date_str} {slot}", "%Y-%m-%d %I:%M %p")
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        new_dt = _slot_label_to_datetime(target_date, slot)
     except ValueError:
         return jsonify({"status": "error", "message": "Invalid date/time format"}), 400
 
@@ -705,12 +849,17 @@ def reschedule_appointment(apt_id):
 
     apt.appointment_datetime = new_dt
     apt.status = AppointmentStatus.BOOKED
+<<<<<<< Updated upstream
     apt.reminder_email_status = None
     apt.reminder_email_kind = None
     apt.reminder_email_message = None
     apt.reminder_email_sent_at = None
     apt.reminder_email_updated_at = local_now()
     apt.reminder_email_read = False
+=======
+    apt.mail_sent = False  # Allow new reminder emails
+    apt.remark = None
+>>>>>>> Stashed changes
     db.session.commit()
     return jsonify({"status": "success", "message": "Appointment rescheduled"})
 
@@ -777,38 +926,48 @@ def doctor_slots(doctor_id):
     if not doc:
         return jsonify({"status": "error", "message": "Doctor not found"}), 404
 
+<<<<<<< Updated upstream
     # Fixed clinical slots extended through the night OPD window.
+=======
+    # Fixed clinical slots every 1 hour from morning through midnight.
+>>>>>>> Stashed changes
     all_slots = [
         "9:00 AM","10:00 AM","11:00 AM","12:00 PM",
         "1:00 PM","2:00 PM","3:00 PM","4:00 PM",
         "5:00 PM","6:00 PM","7:00 PM","8:00 PM",
+<<<<<<< Updated upstream
         "9:00 PM","10:00 PM","10:30 PM"
+=======
+        "9:00 PM","10:00 PM","11:00 PM","12:00 AM"
+>>>>>>> Stashed changes
     ]
 
+    day_start, day_end = _service_day_bounds(target)
+
     doctor_booked = {
-        a.appointment_datetime.strftime("%I:%M %p").lstrip("0")
+        _appointment_slot_label(a.appointment_datetime, target)
         for a in Appointment.query.filter(
             Appointment.doctor_id == doctor_id,
             Appointment.status    == AppointmentStatus.BOOKED,
-            db.func.date(Appointment.appointment_datetime) == target.isoformat()
+            Appointment.appointment_datetime > day_start,
+            Appointment.appointment_datetime <= day_end
         ).all()
     }
 
     patient_booked = {
-        a.appointment_datetime.strftime("%I:%M %p").lstrip("0")
+        _appointment_slot_label(a.appointment_datetime, target)
         for a in Appointment.query.filter(
             Appointment.patient_id == g.user.id,
             Appointment.status     == AppointmentStatus.BOOKED,
-            db.func.date(Appointment.appointment_datetime) == target.isoformat()
+            Appointment.appointment_datetime > day_start,
+            Appointment.appointment_datetime <= day_end
         ).all()
     }
 
-    day_start = datetime.combine(target, datetime.min.time())
-    day_end   = datetime.combine(target, datetime.max.time())
     daily_count = Appointment.query.filter(
         Appointment.patient_id           == g.user.id,
         Appointment.status               == AppointmentStatus.BOOKED,
-        Appointment.appointment_datetime >= day_start,
+        Appointment.appointment_datetime > day_start,
         Appointment.appointment_datetime <= day_end
     ).count()
 
@@ -819,18 +978,40 @@ def doctor_slots(doctor_id):
     has_schedule = len(schedules) > 0
     is_leave = any((s.work_type or "").strip().lower() == "leave" for s in schedules)
 
+<<<<<<< Updated upstream
     # If no schedule exists, assume 09:00-22:30 working day.
+=======
+    # If no schedule exists, assume 09:00-midnight working day.
+>>>>>>> Stashed changes
     if has_schedule and not is_leave:
         windows = []
         for s in schedules:
             try:
                 start_t = datetime.strptime((s.shift_start or "09:00").strip(), "%H:%M").time()
+<<<<<<< Updated upstream
                 end_t = datetime.strptime((s.shift_end or "22:30").strip(), "%H:%M").time()
                 windows.append((start_t, end_t))
             except ValueError:
                 windows.append((datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("22:30", "%H:%M").time()))
     else:
         windows = [(datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("22:30", "%H:%M").time())]
+=======
+                end_t = datetime.strptime((s.shift_end or "23:59").strip(), "%H:%M").time()
+            except ValueError:
+                start_t = datetime.strptime("09:00", "%H:%M").time()
+                end_t = datetime.strptime("23:59", "%H:%M").time()
+
+            start_dt = datetime.combine(target, start_t)
+            end_dt = datetime.combine(target, end_t)
+            if end_t <= start_t:
+                end_dt += timedelta(days=1)
+            windows.append((start_dt, end_dt))
+    else:
+        windows = [(
+            datetime.combine(target, datetime.strptime("09:00", "%H:%M").time()),
+            datetime.combine(target + timedelta(days=1), datetime.min.time())
+        )]
+>>>>>>> Stashed changes
 
     lunch_start = datetime.strptime("13:00", "%H:%M").time()
     lunch_end = datetime.strptime("14:00", "%H:%M").time()
@@ -838,9 +1019,9 @@ def doctor_slots(doctor_id):
 
     result = []
     for s in all_slots:
-        slot_time = datetime.strptime(s, "%I:%M %p").time()
-        slot_dt = datetime.combine(target, slot_time)
-        in_window = any(start_t <= slot_time < end_t for (start_t, end_t) in windows)
+        slot_dt = _slot_label_to_datetime(target, s)
+        slot_time = slot_dt.time()
+        in_window = any(start_dt <= slot_dt < end_dt for (start_dt, end_dt) in windows)
         is_lunch = lunch_start <= slot_time < lunch_end
         is_past_time = target == now_local.date() and slot_dt <= now_local
 

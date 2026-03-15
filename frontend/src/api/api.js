@@ -7,6 +7,11 @@ export async function getDashboardData() {
   return res.data
 }
 
+export async function updatePatientProfile(email, password) {
+  const res = await api.put('/api/patient/profile', { email, password })
+  return res.data
+}
+
 export async function getAppointments(tab = 'upcoming') {
   const res = await api.get(`/api/appointments?tab=${tab}`)
   return res.data

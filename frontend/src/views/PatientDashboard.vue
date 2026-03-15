@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import api, {
   getDashboardData,
+  updatePatientProfile,
   getAppointments,
   getAppointmentDetail,
   bookAppointment,
@@ -79,11 +80,18 @@ const pageSub = computed(() => {
   return map[currentView.value] || ''
 })
 
+const showDashboardBack = computed(() => currentView.value !== 'dashboard')
+
 function showView(name) {
   currentView.value = name
+  showNotificationPanel.value = false
   if (name === 'appointments') loadAptTab(activeTab.value)
   if (name === 'find-doctors' && allDoctors.value.length === 0) loadDoctors()
   if (name === 'prescriptions' && prescriptions.value.length === 0) loadPrescriptions()
+}
+
+function goToDashboard() {
+  showView('dashboard')
 }
 
 // ─── Patient & Stats ───────────────────────────────────────────────────────
@@ -96,25 +104,156 @@ const patientInitial = computed(() => (patient.value.name || 'P')[0].toUpperCase
 // ─── Dashboard ─────────────────────────────────────────────────────────────
 
 const upcomingApts   = ref([])
+const pastApts       = ref([])
 const todayReminders = ref([])
 const nextApt        = computed(() => upcomingApts.value[0] || null)
 const today          = new Date().toISOString().split('T')[0]
+const showNotificationPanel = ref(false)
+const notificationWrapRef = ref(null)
+const NOTIFICATION_RETENTION_MS = 2 * 24 * 60 * 60 * 1000
+
+const reminderNotifications = computed(() => {
+  const nowTs = Date.now()
+  return [...upcomingApts.value, ...pastApts.value]
+    .filter((apt) => {
+      const state = apt?.email_reminder?.state
+      if (state !== 'sent' && state !== 'failed') return false
+
+      const appointmentTs = apt?.appointment_datetime ? new Date(apt.appointment_datetime).getTime() : Number.NaN
+      if (Number.isNaN(appointmentTs)) return false
+
+      return appointmentTs + NOTIFICATION_RETENTION_MS > nowTs
+    })
+    .sort((a, b) => {
+      const aTs = a?.appointment_datetime ? new Date(a.appointment_datetime).getTime() : 0
+      const bTs = b?.appointment_datetime ? new Date(b.appointment_datetime).getTime() : 0
+      return bTs - aTs
+    })
+    .map((apt) => ({
+      id: apt.id,
+      state: apt.email_reminder.state,
+      label: apt.email_reminder.label,
+      message: apt.email_reminder.message,
+      needsEmailUpdate: !!apt?.email_reminder?.needs_email_update,
+      when: `${apt.date_full || apt.date} at ${apt.time}`,
+    }))
+})
+
+const seenNotificationKeys = ref([])
+const notificationStorageKey = computed(() =>
+  patient.value?.patient_uid ? `patient-notification-seen:${patient.value.patient_uid}` : ''
+)
+const unreadNotificationCount = ref(0)
+
+const notificationBadgeCount = computed(() => unreadNotificationCount.value)
+
+const hasNotificationAlert = computed(() =>
+  notificationBadgeCount.value > 0 &&
+  reminderNotifications.value.some(
+    (item) => item.state === 'failed' && !seenNotificationKeys.value.includes(notificationKey(item))
+  )
+)
+
+function reminderStateClass(state) {
+  if (state === 'sent') return 'reminder-item-sent'
+  if (state === 'failed') return 'reminder-item-failed'
+  return 'reminder-item-pending'
+}
+
+function reminderStateIcon(state) {
+  if (state === 'sent') return 'bi bi-envelope-check-fill'
+  if (state === 'failed') return 'bi bi-envelope-x-fill'
+  if (state === 'not_sent') return 'bi bi-envelope-slash-fill'
+  return 'bi bi-envelope-fill'
+}
+
+function toggleNotificationPanel() {
+  showNotificationPanel.value = !showNotificationPanel.value
+  if (showNotificationPanel.value) {
+    markNotificationsSeen()
+  }
+}
+
+function handleDocumentClick(event) {
+  if (!showNotificationPanel.value) return
+  if (notificationWrapRef.value?.contains(event.target)) return
+  showNotificationPanel.value = false
+}
+
+function notificationKey(notification) {
+  return `${notification.id}:${notification.state}:${notification.when}`
+}
+
+function persistSeenNotificationKeys() {
+  if (!notificationStorageKey.value) return
+  localStorage.setItem(notificationStorageKey.value, JSON.stringify(seenNotificationKeys.value))
+}
+
+function loadSeenNotificationKeys() {
+  if (!notificationStorageKey.value) return
+  try {
+    const stored = JSON.parse(localStorage.getItem(notificationStorageKey.value) || '[]')
+    seenNotificationKeys.value = Array.isArray(stored) ? stored : []
+  } catch {
+    seenNotificationKeys.value = []
+  }
+}
+
+function markNotificationsSeen() {
+  const activeKeys = reminderNotifications.value.map(notificationKey)
+  seenNotificationKeys.value = [...new Set([...seenNotificationKeys.value, ...activeKeys])]
+  persistSeenNotificationKeys()
+  unreadNotificationCount.value = 0
+}
+
+function refreshNotificationBadge() {
+  const activeKeys = reminderNotifications.value.map(notificationKey)
+  if (activeKeys.length === 0) {
+    seenNotificationKeys.value = []
+    persistSeenNotificationKeys()
+    unreadNotificationCount.value = 0
+    return
+  }
+
+  // Keep only keys that still belong to active 2-day notifications.
+  seenNotificationKeys.value = seenNotificationKeys.value.filter((key) => activeKeys.includes(key))
+  persistSeenNotificationKeys()
+
+  if (showNotificationPanel.value) {
+    unreadNotificationCount.value = 0
+    return
+  }
+
+  unreadNotificationCount.value = activeKeys.filter((key) => !seenNotificationKeys.value.includes(key)).length
+}
 
 async function loadDashboard() {
   try {
     const data = await getDashboardData()
     if (!data || data.status !== 'success') return
     patient.value = data.patient
+    loadSeenNotificationKeys()
+    profileEmail.value = data?.patient?.email || ''
     stats.value   = data.stats
 
-    const apts = await getAppointments('upcoming')
-    if (apts?.appointments) {
-      upcomingApts.value = apts.appointments
+    const [upcomingRes, pastRes] = await Promise.all([
+      getAppointments('upcoming'),
+      getAppointments('past')
+    ])
+
+    if (upcomingRes?.appointments) {
+      upcomingApts.value = upcomingRes.appointments
       const todayStr = new Date().toDateString()
-      todayReminders.value = apts.appointments.filter(a =>
+      todayReminders.value = upcomingRes.appointments.filter(a =>
         a.date_full && new Date(a.date_full).toDateString() === todayStr
       )
+    } else {
+      upcomingApts.value = []
+      todayReminders.value = []
     }
+
+    pastApts.value = pastRes?.appointments || []
+    refreshNotificationBadge()
   } catch (err) {
     if (redirectToLoginIfUnauthorized(err)) return
     showToast(getErrorMessage(err, 'Could not load dashboard data'))
@@ -240,6 +379,7 @@ const aptDetail = ref(null)
 async function openAptDetail(aptId) {
   currentView.value = 'apt-detail'
   aptDetail.value   = null
+  showNotificationPanel.value = false
   try {
     const data = await getAppointmentDetail(aptId)
     if (data?.appointment) aptDetail.value = data.appointment
@@ -401,7 +541,80 @@ async function confirmBooking() {
 const showProfileModal = ref(false)
 const profileEmail = ref('')
 const profilePassword = ref('')
+<<<<<<< Updated upstream
 const savingProfile = ref(false)
+=======
+const isEditingEmail = ref(false)
+const savingProfile = ref(false)
+
+function openProfileModal() {
+  profileEmail.value = patient.value.email || ''
+  profilePassword.value = ''
+  isEditingEmail.value = false
+  showNotificationPanel.value = false
+  showProfileModal.value = true
+  refreshNotificationBadge()
+}
+
+function openEmailUpdateModal() {
+  openProfileModal()
+  isEditingEmail.value = true
+}
+
+function startEmailEdit() {
+  profileEmail.value = patient.value.email || ''
+  profilePassword.value = ''
+  isEditingEmail.value = true
+}
+
+function cancelEmailEdit() {
+  profileEmail.value = patient.value.email || ''
+  profilePassword.value = ''
+  isEditingEmail.value = false
+}
+
+async function saveProfileEmail() {
+  if (!profileEmail.value.trim()) {
+    showToast('Please enter your email address')
+    return
+  }
+
+  if (!profilePassword.value) {
+    showToast('Please enter your password to update email')
+    return
+  }
+
+  savingProfile.value = true
+  try {
+    const res = await updatePatientProfile(profileEmail.value.trim(), profilePassword.value)
+    if (res?.status === 'success') {
+      patient.value = { ...patient.value, ...(res.patient || {}), email: res?.patient?.email || profileEmail.value.trim() }
+      profilePassword.value = ''
+      isEditingEmail.value = false
+      showToast(res.message || 'Email updated successfully')
+      loadDashboard()
+      if (currentView.value === 'appointments') loadAptTab(activeTab.value)
+      if (currentView.value === 'apt-detail' && aptDetail.value?.id) openAptDetail(aptDetail.value.id)
+    } else {
+      showToast(res?.message || 'Could not update email')
+    }
+  } catch (err) {
+    if (redirectToLoginIfUnauthorized(err)) return
+    showToast(getErrorMessage(err, 'Could not update email'))
+  } finally {
+    savingProfile.value = false
+  }
+}
+
+function handleNotificationAction(notification) {
+  markNotificationsSeen()
+  if (notification.needsEmailUpdate) {
+    openEmailUpdateModal()
+    return
+  }
+  openAptDetail(notification.id)
+}
+>>>>>>> Stashed changes
 
 // ─── Logout ────────────────────────────────────────────────────────────────
 
@@ -526,6 +739,7 @@ async function handleDownload(type) {
 // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
 onMounted(() => {
+  document.addEventListener('click', handleDocumentClick)
   loadDashboard()
   loadDoctors()
   loadPrescriptions()
@@ -538,6 +752,10 @@ onBeforeUnmount(() => {
   if (notificationPollTimer) {
     clearInterval(notificationPollTimer)
   }
+  document.removeEventListener('click', handleDocumentClick)
+})
+
+onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocumentClick)
 })
 </script>
@@ -568,7 +786,11 @@ onBeforeUnmount(() => {
       </button>
     </nav>
     <div class="sidebar-bottom">
+<<<<<<< Updated upstream
       <div class="user-pill" @click="openProfileModal()">
+=======
+      <div class="user-pill" @click="openProfileModal">
+>>>>>>> Stashed changes
         <div class="avatar">{{ patientInitial }}</div>
         <div class="user-pill-info">
           <div class="user-pill-name">{{ patient.name || 'Loading…' }}</div>
@@ -589,6 +811,7 @@ onBeforeUnmount(() => {
         <div class="page-sub">{{ pageSub }}</div>
       </div>
       <div class="topbar-right">
+<<<<<<< Updated upstream
         <div ref="notiMenuRef" class="noti-menu">
           <div class="noti-bell-wrapper" @click="toggleNotifications">
             <i class="bi bi-bell"></i>
@@ -611,13 +834,52 @@ onBeforeUnmount(() => {
                   <div class="noti-time">{{ new Date(n.created_at).toLocaleString() }}</div>
                   <button v-if="n.type === 'error_invalid_email'" class="btn btn-ghost btn-xs" @click.stop="handleNotificationAction(n)">Update Email</button>
                 </div>
+=======
+        <div ref="notificationWrapRef" class="notification-wrap">
+          <button class="notification-btn" :class="{ alert: hasNotificationAlert }" @click="toggleNotificationPanel">
+            <i class="bi bi-bell-fill"></i>
+            <span v-if="notificationBadgeCount > 0" class="notification-badge">{{ notificationBadgeCount }}</span>
+          </button>
+          <div v-if="showNotificationPanel" class="notification-panel">
+            <div class="notification-panel-head">
+              <strong>Reminder Notifications</strong>
+              <span>{{ reminderNotifications.length }}</span>
+            </div>
+            <div v-if="reminderNotifications.length === 0" class="notification-empty">
+              No appointment reminders yet.
+            </div>
+            <div
+              v-for="notification in reminderNotifications"
+              :key="notification.id"
+              class="notification-item"
+              :class="reminderStateClass(notification.state)"
+            >
+              <div class="notification-item-icon">
+                <i :class="reminderStateIcon(notification.state)"></i>
+              </div>
+              <div class="notification-item-body">
+                <div class="notification-item-title">{{ notification.label }}</div>
+                <div class="notification-item-meta">{{ notification.when }}</div>
+                <p>{{ notification.message }}</p>
+                <button class="notification-action" @click="handleNotificationAction(notification)">
+                  {{ notification.needsEmailUpdate ? 'Update Email' : 'View Appointment' }}
+                </button>
+>>>>>>> Stashed changes
               </div>
             </div>
           </div>
         </div>
+<<<<<<< Updated upstream
         <div class="avatar sm" style="cursor:pointer" @click="openProfileModal()">{{ patientInitial }}</div>
+=======
+        <div class="avatar sm" style="cursor:pointer" @click="openProfileModal">{{ patientInitial }}</div>
+>>>>>>> Stashed changes
       </div>
     </div>
+
+    <button v-if="showDashboardBack" class="btn btn-ghost btn-sm back-nav-btn" @click="goToDashboard">
+      <i class="bi bi-arrow-left"></i> Back
+    </button>
 
     <!-- VIEW: DASHBOARD -->
     <div v-if="currentView === 'dashboard'">
@@ -725,10 +987,9 @@ onBeforeUnmount(() => {
           <div class="avatar sm" :class="avatarColor(d.name)" style="margin:0 auto 10px">{{ d.name[0] }}</div>
           <div style="font-weight:700;font-size:15px">{{ d.name }}</div>
           <span class="doc-spec">{{ d.specialization || 'General' }}</span>
-          <div class="doc-avail" :class="d.is_available ? 'ok' : 'no'">
+              <div class="doc-avail" :class="d.is_available ? 'ok' : 'no'">
             <i :class="d.is_available ? 'bi bi-check-circle' : 'bi bi-x-circle'"></i>
             {{ d.is_available ? 'Available' : 'Unavailable' }}
-            <span v-if="d.booked_slots > 0">({{ d.booked_slots }} booked)</span>
           </div>
           <div class="doc-meta"><i class="bi bi-building"></i> {{ d.department || 'N/A' }}</div>
           <div class="doc-meta"><i class="bi bi-telephone"></i> {{ d.phone || 'N/A' }}</div>
@@ -769,9 +1030,6 @@ onBeforeUnmount(() => {
 
     <!-- VIEW: APT DETAIL -->
     <div v-if="currentView === 'apt-detail'">
-      <button class="btn btn-ghost btn-sm" style="margin-bottom:16px" @click="showView('appointments')">
-        <i class="bi bi-arrow-left"></i> Back
-      </button>
       <div class="card full" v-if="aptDetail">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
           <div style="font-family:'Sora',sans-serif;font-size:18px;font-weight:700">Appointment Information</div>
@@ -866,7 +1124,6 @@ onBeforeUnmount(() => {
           <div class="download-card">
             <i class="bi bi-file-earmark-text" style="color:var(--green)"></i>
             <h4>Medical Report</h4>
-            <p>Human-readable full report with appointments, prescriptions, and notes.</p>
             <button class="btn btn-primary" style="margin-top:4px" @click="handleDownload('text')">
               <i class="bi bi-download"></i> Download Report
             </button>
@@ -968,6 +1225,7 @@ onBeforeUnmount(() => {
         <div style="font-size:13px;color:var(--muted)">Patient ID: {{ patient.patient_uid }}</div>
       </div>
       <div class="detail-grid">
+<<<<<<< Updated upstream
         <div class="detail-box" style="grid-column:1/-1">
           <div class="detail-box-label">Email</div>
           <div class="email-edit-row">
@@ -986,6 +1244,29 @@ onBeforeUnmount(() => {
             />
           </div>
           <div class="profile-help-text">Keep this email updated so appointment reminders can reach you.</div>
+=======
+        <div class="detail-box">
+          <div class="detail-box-head">
+            <div class="detail-box-label">Email</div>
+            <button v-if="!isEditingEmail" class="icon-edit-btn" @click="startEmailEdit" title="Edit email">
+              <i class="bi bi-pencil-square"></i>
+            </button>
+          </div>
+          <div v-if="!isEditingEmail" class="detail-box-val">{{ patient.email }}</div>
+          <div v-else>
+            <input v-model="profileEmail" type="email" class="form-control" placeholder="Enter new email" />
+            <input v-model="profilePassword" type="password" class="form-control" placeholder="Enter password to confirm" style="margin-top:10px" />
+            <div class="profile-edit-actions">
+              <button class="btn btn-primary btn-sm" @click="saveProfileEmail" :disabled="savingProfile">
+                <i class="bi bi-check2-circle"></i> {{ savingProfile ? 'Saving...' : 'Update Email' }}
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="cancelEmailEdit" :disabled="savingProfile">
+                Cancel
+              </button>
+            </div>
+          </div>
+          <div class="detail-box-sub" style="margin-top:8px">Reminder emails will be sent to this address.</div>
+>>>>>>> Stashed changes
         </div>
         <div class="detail-box"><div class="detail-box-label">Gender</div><div class="detail-box-val">{{ patient.gender || 'N/A' }}</div></div>
         <div class="detail-box"><div class="detail-box-label">Patient UID</div><div class="detail-box-val">{{ patient.patient_uid }}</div></div>
@@ -1039,7 +1320,27 @@ onBeforeUnmount(() => {
 .page-title { font-family: 'Sora', sans-serif; font-size: 22px; font-weight: 700; }
 .page-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
+<<<<<<< Updated upstream
 .noti-menu { position: relative; }
+=======
+.back-nav-btn { margin-bottom: 16px; }
+.notification-wrap { position: relative; }
+.notification-btn { width: 42px; height: 42px; border-radius: 12px; border: 1px solid var(--border); background: var(--blue-lt); color: var(--blue); display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; transition: all .18s; }
+.notification-btn:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-lt); }
+.notification-btn.alert { border-color: #fca5a5; color: var(--red); background: var(--red-lt); }
+.notification-badge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 999px; background: var(--red); color: white; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
+.notification-panel { position: absolute; top: calc(100% + 10px); right: 0; width: 360px; max-width: min(360px, 88vw); background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 40px rgba(15, 23, 42, .14); padding: 14px; z-index: 150; }
+.notification-panel-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.notification-empty { padding: 18px 12px; text-align: center; color: var(--muted); font-size: 13px; }
+.notification-item { display: flex; gap: 12px; border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+.notification-item:last-child { margin-bottom: 0; }
+.notification-item-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.notification-item-body { min-width: 0; }
+.notification-item-title { font-size: 13px; font-weight: 700; }
+.notification-item-meta { font-size: 12px; color: var(--muted); margin: 2px 0 6px; }
+.notification-item-body p { margin: 0 0 10px; font-size: 12px; color: var(--text); line-height: 1.45; }
+.notification-action { border: none; background: none; padding: 0; color: var(--blue); font-size: 12px; font-weight: 700; cursor: pointer; }
+>>>>>>> Stashed changes
 
 /* CARDS */
 .card { background: var(--card); border-radius: 16px; border: 1px solid var(--border); padding: 20px 24px; }
@@ -1074,6 +1375,14 @@ onBeforeUnmount(() => {
 .reminder-list { display: flex; flex-direction: column; gap: 10px; }
 .reminder-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--amber-lt); border-left: 3px solid var(--amber); border-radius: 10px; font-size: 13px; }
 .reminder-item i { color: var(--amber); margin-top: 1px; flex-shrink: 0; }
+.reminder-item-sent { background: var(--green-lt); border-left-color: var(--green); }
+.reminder-item-sent i { color: var(--green); }
+.reminder-item-failed { background: var(--red-lt); border-left-color: var(--red); }
+.reminder-item-failed i { color: var(--red); }
+.reminder-item-pending { background: var(--amber-lt); border-left-color: var(--amber); }
+.notification-item.reminder-item-sent .notification-item-icon { background: rgba(22, 163, 74, .12); color: var(--green); }
+.notification-item.reminder-item-failed .notification-item-icon { background: rgba(220, 38, 38, .12); color: var(--red); }
+.notification-item.reminder-item-pending .notification-item-icon { background: rgba(217, 119, 6, .12); color: var(--amber); }
 
 /* QUICK ACTIONS */
 .qa-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
@@ -1149,9 +1458,12 @@ onBeforeUnmount(() => {
 /* DETAIL */
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
 .detail-box { border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+.detail-box-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .detail-box-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
 .detail-box-val { font-size: 15px; font-weight: 600; }
 .detail-box-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.icon-edit-btn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--blue-lt); color: var(--blue); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.profile-edit-actions { display: flex; gap: 8px; margin-top: 12px; }
 .info-alert { background: var(--amber-lt); border: 1px solid #fcd34d; border-radius: 12px; padding: 16px 18px; font-size: 13px; }
 .info-alert li { margin-bottom: 4px; }
 
@@ -1215,8 +1527,12 @@ onBeforeUnmount(() => {
   .qa-grid,
   .doctor-grid,
   .next-apt-grid { grid-template-columns: 1fr; }
+<<<<<<< Updated upstream
   .email-edit-row { flex-direction: column; align-items: stretch; }
   .noti-dropdown { right: -52px; width: min(340px, calc(100vw - 24px)); }
+=======
+  .notification-panel { right: -44px; }
+>>>>>>> Stashed changes
 }
 /* NOTIFICATIONS */
 .noti-bell-wrapper { position: relative; width: 40px; height: 40px; border-radius: 50%; background: var(--card); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--muted); transition: all .2s; }
