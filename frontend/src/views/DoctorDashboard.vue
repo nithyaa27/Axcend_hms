@@ -52,51 +52,87 @@
         <div class="panel-head">
           <div>
             <h2>Availability Next 7 Days</h2>
-            <p class="panel-subtle">Set the days patients can book with you for the upcoming week.</p>
-          </div>
-          <div class="availability-head-actions">
-            <span v-if="availabilityFeedback" class="availability-feedback">{{ availabilityFeedback }}</span>
-            <button type="button" class="availability-save" @click="saveAvailability" :disabled="savingAvailability">
-              {{ savingAvailability ? "Saving..." : "Save Availability" }}
-            </button>
+            <p class="panel-subtle">Review your upcoming week, update availability, and save once when the plan looks right.</p>
           </div>
         </div>
 
-        <div class="availability-grid">
-          <article
-            v-for="day in next7Days"
-            :key="`availability-${day.date}`"
-            class="availability-card"
-            :class="{ off: !availabilityMap[day.date] }"
-          >
-            <div class="availability-top">
-              <div>
-                <div class="availability-weekday">{{ day.weekday }}</div>
-                <div class="availability-date">{{ formatDisplayDate(day.date) }}</div>
+        <div class="availability-shell">
+          <aside class="availability-summary">
+            <div class="summary-kicker">Weekly control</div>
+            <h3>Set your booking window in one place.</h3>
+            <p>
+              Patients can only book on the days marked available. Save once to publish the full 7-day update.
+            </p>
+
+            <div class="summary-stats">
+              <div class="summary-stat">
+                <span>Open days</span>
+                <strong>{{ availableDaysCount }}</strong>
               </div>
-              <span class="availability-badge" :class="availabilityMap[day.date] ? 'ok' : 'no'">
-                {{ availabilityMap[day.date] ? "Available" : "Unavailable" }}
-              </span>
+              <div class="summary-stat">
+                <span>Blocked days</span>
+                <strong>{{ unavailableDaysCount }}</strong>
+              </div>
             </div>
-            <div class="availability-actions">
-              <button
-                type="button"
-                class="availability-btn"
-                :class="{ active: availabilityMap[day.date] }"
-                @click="setAvailability(day.date, true)"
-              >
-                Available
-              </button>
-              <button
-                type="button"
-                class="availability-btn"
-                :class="{ active: availabilityMap[day.date] === false }"
-                @click="setAvailability(day.date, false)"
-              >
-                Unavailable
-              </button>
+
+            <div class="availability-feedback-box" :class="availabilityFeedbackTone">
+              <i :class="availabilityFeedbackIcon"></i>
+              <span>{{ availabilityFeedbackText }}</span>
             </div>
-          </article>
+
+            <button
+              type="button"
+              class="availability-save"
+              @click="saveAvailability"
+              :disabled="savingAvailability || !availabilityDirty"
+            >
+              {{ savingAvailability ? "Saving..." : availabilityDirty ? "Save Availability" : "Saved" }}
+            </button>
+          </aside>
+
+          <div class="availability-board">
+            <article
+              v-for="day in next7Days"
+              :key="`availability-${day.date}`"
+              class="availability-card"
+              :class="{ off: !availabilityMap[day.date], today: day.isReference }"
+            >
+              <div class="availability-top">
+                <div>
+                  <div class="availability-weekday">{{ day.weekday }}</div>
+                  <div class="availability-date">{{ formatDisplayDate(day.date) }}</div>
+                </div>
+                <span class="availability-badge" :class="availabilityMap[day.date] ? 'ok' : 'no'">
+                  {{ availabilityMap[day.date] ? "Available" : "Unavailable" }}
+                </span>
+              </div>
+
+              <div class="availability-note">
+                {{ availabilityMap[day.date] ? "Patients can request appointments." : "New bookings are blocked for this day." }}
+              </div>
+
+              <div class="availability-actions">
+                <button
+                  type="button"
+                  class="availability-btn"
+                  :class="{ active: availabilityMap[day.date] }"
+                  @click="setAvailability(day.date, true)"
+                >
+                  <i class="bi bi-check2-circle"></i>
+                  <span>Available</span>
+                </button>
+                <button
+                  type="button"
+                  class="availability-btn danger"
+                  :class="{ active: availabilityMap[day.date] === false }"
+                  @click="setAvailability(day.date, false)"
+                >
+                  <i class="bi bi-dash-circle"></i>
+                  <span>Unavailable</span>
+                </button>
+              </div>
+            </article>
+          </div>
         </div>
       </section>
 
@@ -246,6 +282,7 @@ export default {
       stats: {},
       schedule: [],
       availabilityMap: {},
+      savedAvailabilityMap: {},
       referenceDate: "",
       timeSlots: [9, 10, 11, 12, 14, 15, 16, 17],
       showProfileModal: false,
@@ -289,6 +326,37 @@ export default {
     },
     monthLabel() {
       return this.baseDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    },
+    availableDaysCount() {
+      return this.next7Days.filter((day) => this.availabilityMap[day.date] !== false).length
+    },
+    unavailableDaysCount() {
+      return this.next7Days.length - this.availableDaysCount
+    },
+    availabilityDirty() {
+      return this.next7Days.some((day) => {
+        const current = this.availabilityMap[day.date] !== false
+        const saved = this.savedAvailabilityMap[day.date] !== false
+        return current !== saved
+      })
+    },
+    availabilityFeedbackText() {
+      if (this.savingAvailability) return "Saving your updated booking window."
+      if (this.availabilityFeedback) return this.availabilityFeedback
+      if (this.availabilityDirty) return "You have unsaved availability changes."
+      return "Your current 7-day availability is saved."
+    },
+    availabilityFeedbackTone() {
+      if (this.savingAvailability) return "info"
+      if (this.availabilityFeedback === "Availability updated") return "success"
+      if (this.availabilityFeedback === "Save failed") return "error"
+      return this.availabilityDirty ? "warning" : "neutral"
+    },
+    availabilityFeedbackIcon() {
+      if (this.savingAvailability) return "bi bi-arrow-repeat"
+      if (this.availabilityFeedback === "Availability updated") return "bi bi-check2-circle"
+      if (this.availabilityFeedback === "Save failed") return "bi bi-exclamation-octagon"
+      return this.availabilityDirty ? "bi bi-dot" : "bi bi-shield-check"
     },
     todayAppointments() {
       return this.schedule
@@ -375,13 +443,17 @@ export default {
       }
     },
     async saveAvailability() {
-      if (!this.doctorId) return
+      if (!this.doctorId || !this.availabilityDirty) return
       this.savingAvailability = true
       this.availabilityFeedback = ""
       try {
-        await api.post(`/api/doctor/${this.doctorId}/availability`, {
+        const response = await api.post(`/api/doctor/${this.doctorId}/availability`, {
           dates: this.availabilityMap,
         })
+        const savedMap = this.buildAvailabilityMap(response.data?.availability || [])
+        this.availabilityMap = savedMap
+        this.savedAvailabilityMap = { ...savedMap }
+        await this.loadDashboard()
         this.availabilityFeedback = "Availability updated"
       } catch (error) {
         this.availabilityFeedback = "Save failed"
@@ -414,7 +486,9 @@ export default {
         this.stats = payload.stats || {}
         this.schedule = payload.schedule || []
         this.referenceDate = payload.reference_date || this.toDateKey(new Date())
-        this.availabilityMap = this.buildAvailabilityMap(payload.availability || [])
+        const availabilityMap = this.buildAvailabilityMap(payload.availability || [])
+        this.availabilityMap = availabilityMap
+        this.savedAvailabilityMap = { ...availabilityMap }
       } catch (error) {
         console.error("Failed to load doctor dashboard:", error)
       }
@@ -504,22 +578,124 @@ export default {
   font-size: 14px;
 }
 
-.availability-grid {
+.availability-shell {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.availability-summary {
+  position: sticky;
+  top: 18px;
+  border-radius: 22px;
+  padding: 22px;
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(15, 23, 42, 0.02)),
+    #f8fbff;
+  border: 1px solid #d6e5ff;
+}
+
+.summary-kicker {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #2563eb;
+  font-weight: 800;
+}
+
+.availability-summary h3 {
+  margin: 12px 0 8px;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.availability-summary p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  margin-top: 18px;
+}
+
+.summary-stat {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #dbe4f0;
+}
+
+.summary-stat span {
+  display: block;
+  color: #64748b;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.summary-stat strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.availability-feedback-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.availability-feedback-box.info,
+.availability-feedback-box.neutral {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.availability-feedback-box.success {
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.availability-feedback-box.warning {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.availability-feedback-box.error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.availability-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .availability-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  padding: 14px;
-  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 16px;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.availability-card.today {
+  border-color: #93c5fd;
+  box-shadow: 0 16px 40px rgba(37, 99, 235, 0.12);
 }
 
 .availability-card.off {
-  background: #fff8f8;
-  border-color: #f1d4d4;
+  background: linear-gradient(180deg, #ffffff, #fff5f5);
+  border-color: #fecaca;
 }
 
 .availability-top {
@@ -537,12 +713,12 @@ export default {
 .availability-date {
   margin-top: 4px;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .availability-badge {
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 6px 10px;
   font-size: 12px;
   font-weight: 700;
 }
@@ -559,28 +735,34 @@ export default {
 
 .availability-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr;
+  gap: 10px;
   margin-top: 14px;
 }
 
-.availability-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.availability-note {
+  margin-top: 14px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .availability-btn,
 .availability-save {
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 14px;
   font-weight: 700;
 }
 
 .availability-btn {
-  padding: 10px 8px;
-  background: #f3f4f6;
+  padding: 12px 14px;
+  background: #f8fafc;
   color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: 0.2s ease;
 }
 
 .availability-btn.active {
@@ -589,20 +771,23 @@ export default {
   border-color: #bfd3ff;
 }
 
+.availability-btn.danger.active {
+  background: #fff1f2;
+  color: #be123c;
+  border-color: #fecdd3;
+}
+
 .availability-save {
-  padding: 10px 14px;
+  width: 100%;
+  margin-top: 18px;
+  padding: 14px 16px;
   background: #2563eb;
   color: #ffffff;
 }
 
-.availability-feedback {
-  color: #2563eb;
-  font-size: 13px;
-  font-weight: 600;
-}
-
 .availability-save:disabled {
   opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .panel h2 {
@@ -865,7 +1050,15 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .availability-grid {
+  .availability-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .availability-summary {
+    position: static;
+  }
+
+  .availability-board {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -883,8 +1076,12 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .availability-grid {
+  .availability-board {
     grid-template-columns: 1fr;
+  }
+
+  .summary-stats {
+    grid-template-columns: 1fr 1fr;
   }
 }
 </style>

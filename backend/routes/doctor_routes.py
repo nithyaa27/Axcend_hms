@@ -149,7 +149,15 @@ def dashboard(doctor_id):
         Appointment.appointment_datetime >= start_of_today,
         Appointment.appointment_datetime <= end_of_7th_day,
     ).order_by(Appointment.appointment_datetime.asc()).all()
-    availability = DoctorAvailability.query.filter_by(doctor_id=doctor_id).all()
+    availability = (
+        DoctorAvailability.query.filter(
+            DoctorAvailability.doctor_id == doctor_id,
+            DoctorAvailability.date >= reference_date,
+            DoctorAvailability.date <= reference_date + timedelta(days=6),
+        )
+        .order_by(DoctorAvailability.date.asc(), DoctorAvailability.id.asc())
+        .all()
+    )
     rx_by_appointment = {
         rx.appointment_id: rx
         for rx in Prescription.query.filter(
@@ -175,7 +183,13 @@ def dashboard(doctor_id):
                 }
             )
 
-    availability_data = [{"date": av.date.isoformat(), "is_available": bool(av.is_available)} for av in availability]
+    availability_by_date = {}
+    for av in availability:
+        availability_by_date[av.date.isoformat()] = bool(av.is_available)
+    availability_data = [
+        {"date": day.isoformat(), "is_available": availability_by_date.get(day.isoformat(), True)}
+        for day in (reference_date + timedelta(days=offset) for offset in range(7))
+    ]
 
     return jsonify(
         {
@@ -209,27 +223,55 @@ def update_availability(doctor_id):
     if not isinstance(dates, dict):
         return jsonify({"error": "Invalid payload: dates must be an object"}), 400
 
+    normalized_dates = {}
     for date_str, is_available in dates.items():
         try:
             parsed_date = date.fromisoformat(date_str)
             parsed_is_available = bool(is_available)
         except Exception:
             return jsonify({"error": f"Invalid availability payload for '{date_str}'"}), 400
+        normalized_dates[parsed_date] = parsed_is_available
 
-        existing = DoctorAvailability.query.filter_by(doctor_id=doctor_id, date=parsed_date).first()
-        if existing:
-            existing.is_available = parsed_is_available
-        else:
-            db.session.add(
-                DoctorAvailability(
-                    doctor_id=doctor_id,
-                    date=parsed_date,
-                    is_available=parsed_is_available,
-                )
+    existing_rows = (
+        DoctorAvailability.query.filter(
+            DoctorAvailability.doctor_id == doctor_id,
+            DoctorAvailability.date.in_(list(normalized_dates.keys())),
+        )
+        .order_by(DoctorAvailability.date.asc(), DoctorAvailability.id.asc())
+        .all()
+    )
+    existing_by_date = {}
+    for row in existing_rows:
+        bucket = existing_by_date.setdefault(row.date, [])
+        bucket.append(row)
+
+    for parsed_date, parsed_is_available in normalized_dates.items():
+        rows = existing_by_date.get(parsed_date, [])
+        primary = rows[0] if rows else None
+        if primary:
+            primary.is_available = parsed_is_available
+            for duplicate in rows[1:]:
+                db.session.delete(duplicate)
+            continue
+
+        db.session.add(
+            DoctorAvailability(
+                doctor_id=doctor_id,
+                date=parsed_date,
+                is_available=parsed_is_available,
             )
+        )
 
     db.session.commit()
-    return jsonify({"success": True})
+    return jsonify(
+        {
+            "success": True,
+            "availability": [
+                {"date": parsed_date.isoformat(), "is_available": normalized_dates[parsed_date]}
+                for parsed_date in sorted(normalized_dates.keys())
+            ],
+        }
+    )
 
 
 @doctor_bp.route("/<int:doctor_id>/appointments/<int:appointment_id>/treatment", methods=["GET"])
