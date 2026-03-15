@@ -52,34 +52,28 @@
         <div class="panel-head">
           <div>
             <h2>Availability Next 7 Days</h2>
-            <p class="panel-subtle">Review your upcoming week, update availability, and save once when the plan looks right.</p>
+            <p class="panel-subtle">Click below to open and update your next 7 days availability.</p>
           </div>
         </div>
 
-        <div class="availability-shell">
-          <aside class="availability-summary">
-            <div class="summary-kicker">Weekly control</div>
-            <h3>Set your booking window in one place.</h3>
-            <p>
-              Patients can only book on the days marked available. Save once to publish the full 7-day update.
-            </p>
-
-            <div class="summary-stats">
-              <div class="summary-stat">
-                <span>Open days</span>
-                <strong>{{ availableDaysCount }}</strong>
-              </div>
-              <div class="summary-stat">
-                <span>Blocked days</span>
-                <strong>{{ unavailableDaysCount }}</strong>
-              </div>
+        <div class="availability-toggle-wrap">
+          <button type="button" class="availability-toggle" @click="availabilityExpanded = !availabilityExpanded">
+            <div class="availability-toggle-copy">
+              <span class="availability-toggle-title">Doctor Availability</span>
+              <span class="availability-toggle-meta">
+                {{ availableDaysCount }} open, {{ unavailableDaysCount }} blocked
+              </span>
             </div>
+            <i class="bi" :class="availabilityExpanded ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+          </button>
+        </div>
 
+        <div v-if="availabilityExpanded" class="availability-shell">
+          <div class="availability-toolbar">
             <div class="availability-feedback-box" :class="availabilityFeedbackTone">
               <i :class="availabilityFeedbackIcon"></i>
               <span>{{ availabilityFeedbackText }}</span>
             </div>
-
             <button
               type="button"
               class="availability-save"
@@ -88,7 +82,7 @@
             >
               {{ savingAvailability ? "Saving..." : availabilityDirty ? "Save Availability" : "Saved" }}
             </button>
-          </aside>
+          </div>
 
           <div class="availability-board">
             <article
@@ -285,6 +279,7 @@ export default {
       savedAvailabilityMap: {},
       referenceDate: "",
       timeSlots: [9, 10, 11, 12, 14, 15, 16, 17],
+      availabilityExpanded: false,
       showProfileModal: false,
       savingAvailability: false,
       availabilityFeedback: "",
@@ -580,66 +575,46 @@ export default {
 
 .availability-shell {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
   gap: 18px;
-  align-items: start;
 }
 
-.availability-summary {
-  position: sticky;
-  top: 18px;
-  border-radius: 22px;
-  padding: 22px;
-  background:
-    linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(15, 23, 42, 0.02)),
-    #f8fbff;
-  border: 1px solid #d6e5ff;
+.availability-toggle-wrap {
+  margin-bottom: 14px;
 }
 
-.summary-kicker {
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #2563eb;
-  font-weight: 800;
-}
-
-.availability-summary h3 {
-  margin: 12px 0 8px;
-  font-size: 24px;
-  line-height: 1.2;
-}
-
-.availability-summary p {
-  margin: 0;
-  color: #475569;
-  line-height: 1.6;
-}
-
-.summary-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 18px;
-}
-
-.summary-stat {
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: #ffffff;
+.availability-toggle {
+  width: 100%;
   border: 1px solid #dbe4f0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
 }
 
-.summary-stat span {
-  display: block;
+.availability-toggle-copy {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.availability-toggle-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.availability-toggle-meta {
+  font-size: 14px;
   color: #64748b;
-  font-size: 13px;
-  margin-bottom: 6px;
 }
 
-.summary-stat strong {
-  font-size: 28px;
-  line-height: 1;
+.availability-toggle i {
+  font-size: 20px;
+  color: #2563eb;
 }
 
 .availability-feedback-box {
@@ -672,6 +647,13 @@ export default {
 .availability-feedback-box.error {
   background: #fef2f2;
   color: #b91c1c;
+}
+
+.availability-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
 }
 
 .availability-board {
@@ -1050,14 +1032,6 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .availability-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .availability-summary {
-    position: static;
-  }
-
   .availability-board {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1080,8 +1054,9 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .summary-stats {
-    grid-template-columns: 1fr 1fr;
+  .availability-toolbar {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>
