@@ -23,6 +23,9 @@ def _is_doctor_available_on_date(doctor_id, target_date):
 
 @dashboard_bp.before_request
 def require_login_for_dashboard_api():
+    if request.method == "OPTIONS":
+        return None
+
     if not g.user:
         msg = getattr(g, "auth_error", "Authentication required")
         return jsonify({"message": msg}), 401
@@ -406,14 +409,6 @@ def _build_report_lines(patient, appointments, prescriptions, generated_at):
 @dashboard_bp.route("/api/dashboard_data")
 
 def get_dashboard_data():
-    # Dev-safe fallback: create due reminders when the patient dashboard is loaded,
-    # even if Celery beat/worker are not currently running.
-    try:
-        from reminder_tasks import run_scheduled_reminders
-        run_scheduled_reminders()
-    except Exception as exc:
-        print(f"Reminder dispatch skipped: {exc}")
-
     now  = datetime.now()
     apts = Appointment.query.filter_by(patient_id=g.user.id).all()
     reminders = (
@@ -726,7 +721,9 @@ def find_doctors():
             "name":           doc.name,
             "specialization": doc.specialization,
             "is_available":   is_available,
+            "status":         "available" if is_available else "unavailable",
             "department":     doc.department.name if doc.department else None,
+            "department_id":  doc.department_id,
             "phone":          getattr(doc, "phone", None),
             "booked_slots":   booked,
         })
@@ -960,9 +957,6 @@ def download_json():
 
     response = Response(json.dumps(payload, indent=2), mimetype="application/json")
     response.headers["Content-Disposition"] = (
-        f'attachment; filename="{p.name.replace(" ", "_")}_data.json"'
+        f'attachment; filename="{p.name.replace(" ", "_")}_Appointments.json"'
     )
     return response
-
-
-

@@ -31,6 +31,9 @@ def _parse_datetime(date_str, time_str):
 
 @admin_bp.before_request
 def require_admin():
+    if request.method == "OPTIONS":
+        return None
+
     if not g.user:
         msg = getattr(g, "auth_error", "Authentication required")
         return jsonify({"message": msg}), 401
@@ -42,14 +45,30 @@ def require_admin():
     return None
 
 
+def _email_used_anywhere(email, exclude_doctor_id=None, exclude_patient_id=None):
+    doctor_query = Doctor.query.filter(db.func.lower(Doctor.email) == email.lower())
+    if exclude_doctor_id is not None:
+        doctor_query = doctor_query.filter(Doctor.id != exclude_doctor_id)
+
+    patient_query = Patient.query.filter(db.func.lower(Patient.email) == email.lower())
+    if exclude_patient_id is not None:
+        patient_query = patient_query.filter(Patient.id != exclude_patient_id)
+
+    return doctor_query.first() is not None or patient_query.first() is not None
+
+
 @admin_bp.route("/api/admin/dashboard", methods=["GET"])
 def admin_dashboard():
-    return jsonify({
-        "total_doctors": Doctor.query.count(),
-        "total_departments": Department.query.count(),
-        "total_patients": Patient.query.filter_by(role="patient").count(),
-        "total_appointments": Appointment.query.count(),
-    })
+    try:
+        return jsonify({
+            "status": "success",
+            "total_doctors": Doctor.query.count(),
+            "total_departments": Department.query.count(),
+            "total_patients": Patient.query.filter_by(role="patient").count(),
+            "total_appointments": Appointment.query.count(),
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": "Failed to fetch dashboard data"}), 500
 
 
 @admin_bp.route("/api/admin/reminder-settings", methods=["GET"])
@@ -236,7 +255,7 @@ def add_doctor():
     if not department:
         return jsonify({"error": "Department not found"}), 404
 
-    email_exists = Doctor.query.filter(db.func.lower(Doctor.email) == email).first()
+    email_exists = _email_used_anywhere(email)
     if email_exists:
         return jsonify({"error": "Email already exists"}), 400
 
@@ -301,10 +320,7 @@ def update_doctor(doctor_id):
     if not department:
         return jsonify({"error": "Department not found"}), 404
 
-    email_exists = Doctor.query.filter(
-        db.func.lower(Doctor.email) == email,
-        Doctor.id != doctor_id
-    ).first()
+    email_exists = _email_used_anywhere(email, exclude_doctor_id=doctor_id)
     if email_exists:
         return jsonify({"error": "Email already exists"}), 400
 
@@ -398,7 +414,7 @@ def add_patient_admin():
     if not all([name, email, phone, gender, age]):
         return jsonify({"error": "All fields are required"}), 400
 
-    existing = Patient.query.filter_by(email=email).first()
+    existing = _email_used_anywhere(email)
     if existing:
         return jsonify({"error": "Email already exists"}), 400
 
@@ -441,7 +457,7 @@ def update_patient(patient_id):
     if not all([name, email, phone, age, gender]):
         return jsonify({"error": "All fields are required"}), 400
 
-    existing = Patient.query.filter(Patient.email == email, Patient.id != patient_id).first()
+    existing = _email_used_anywhere(email, exclude_patient_id=patient_id)
     if existing:
         return jsonify({"error": "Email already exists"}), 400
 

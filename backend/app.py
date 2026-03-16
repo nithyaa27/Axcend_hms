@@ -45,7 +45,7 @@ CORS(
 def load_user_from_token():
     # Skip CORS preflight
     if request.method == "OPTIONS":
-        return "", 200
+        return None
     
     g.user = None
     g.auth_error = None
@@ -433,5 +433,5 @@ with app.app_context():
     _ensure_default_admin()
 
 if __name__ == "__main__":
-    debug_mode = os.getenv("FLASK_DEBUG", "1") == "1"
-    app.run(debug=debug_mode, host="0.0.0.0")
+    debug_mode = os.getenv("FLASK_DEBUG", "True").lower() in ("true", "1", "t")
+    app.run(debug=debug_mode, host="0.0.0.0", port=5000)

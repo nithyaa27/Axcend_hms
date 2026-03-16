@@ -23,11 +23,19 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     const role = localStorage.getItem('role')
+    // If a token exists and we get a 401, the session is invalid for any role.
+    const hasToken = !!localStorage.getItem('token')
+    
+    // Catch pure network errors (e.g. server down, CORS preflight failed)
+    if (!err.response) {
+      console.error("[Interceptor] Network or Connection Error:", err.message)
+      return Promise.reject(err)
+    }
 
     if (
       err.response &&
       err.response.status === 401 &&
-      role === 'patient' && // Added to scope session expiry to patients only
+      hasToken && // The user was supposed to be authenticated
       !sessionExpiredHandled
     ) {
       sessionExpiredHandled = true
