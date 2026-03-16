@@ -15,6 +15,12 @@ def _combine_today(clock_value):
     return datetime.combine(now.date(), time(hour=hour, minute=minute))
 
 
+def _time_reached(clock_value, now=None):
+    current = now or datetime.now()
+    target = _combine_today(clock_value)
+    return current >= target
+
+
 def _create_patient_reminder(patient_id, reminder_type, title, message, scheduled_for, appointment_id=None):
     existing = PatientReminder.query.filter_by(
         patient_id=patient_id,
@@ -125,15 +131,14 @@ def _send_monthly_reminders(settings):
 def run_scheduled_reminders():
     settings = get_or_create_reminder_settings()
     now = datetime.now()
-    current_time = now.strftime("%H:%M")
     results = {"daily": 0, "monthly": 0}
 
-    if settings.daily_enabled and current_time == settings.daily_time:
+    if settings.daily_enabled and _time_reached(settings.daily_time, now):
         results["daily"] = _send_daily_reminders(settings)
 
     last_day = monthrange(now.year, now.month)[1]
     effective_day = min(settings.monthly_day, last_day)
-    if settings.monthly_enabled and now.day == effective_day and current_time == settings.monthly_time:
+    if settings.monthly_enabled and now.day == effective_day and _time_reached(settings.monthly_time, now):
         results["monthly"] = _send_monthly_reminders(settings)
 
     return results

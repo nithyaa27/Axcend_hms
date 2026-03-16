@@ -406,6 +406,14 @@ def _build_report_lines(patient, appointments, prescriptions, generated_at):
 @dashboard_bp.route("/api/dashboard_data")
 
 def get_dashboard_data():
+    # Dev-safe fallback: create due reminders when the patient dashboard is loaded,
+    # even if Celery beat/worker are not currently running.
+    try:
+        from reminder_tasks import run_scheduled_reminders
+        run_scheduled_reminders()
+    except Exception as exc:
+        print(f"Reminder dispatch skipped: {exc}")
+
     now  = datetime.now()
     apts = Appointment.query.filter_by(patient_id=g.user.id).all()
     reminders = (
