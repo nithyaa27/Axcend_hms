@@ -105,4 +105,14 @@ function _triggerDownload(res) {
   window.URL.revokeObjectURL(url)
 }
 
+export async function getNotifications() {
+  const res = await api.get('/api/notifications')
+  return res.data
+}
+
+export async function updatePatientEmail(email) {
+  const res = await api.put('/api/profile/email', { email })
+  return res.data
+}
+
 export default api

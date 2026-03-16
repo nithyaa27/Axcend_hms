@@ -11,7 +11,9 @@ import api, {
   getDoctorSlots,
   getPrescriptions,
   downloadReport,
-  downloadReportPdf
+  downloadReportPdf,
+  updatePatientEmail,
+  getNotifications
 } from '../api/api.js'
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -189,7 +191,7 @@ function canCancelApt(apt) {
   return (apt?.status || '').toLowerCase() === 'booked'
 }
 
-// â”€â”€â”€ Prescriptions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Prescriptions 
 
 const prescriptions = ref([])
 
@@ -399,12 +401,85 @@ const showProfileModal = ref(false)
 // ─── Logout ────────────────────────────────────────────────────────────────
 
 async function doLogout() {
-  await api.post('/api/logout')
   localStorage.removeItem('token')
   localStorage.removeItem('isLoggedIn')
   localStorage.removeItem('role')
   localStorage.removeItem('name')
   window.location.href = '/login'
+}
+
+// ─── Notifications ─────────────────────────────────────────────────────────
+
+const notifications = ref([])
+const showNotifPanel = ref(false)
+const lastSeenTime   = ref(localStorage.getItem('hms_last_seen_notif') || '')
+
+const unreadCount = computed(() => {
+  if (!notifications.value.length) return 0
+  if (!lastSeenTime.value) return notifications.value.length
+  return notifications.value.filter(n => n.time > lastSeenTime.value).length
+})
+
+async function loadNotifications() {
+  try {
+    const res = await getNotifications()
+    if (res?.status === 'success') {
+      notifications.value = res.notifications
+    }
+  } catch (err) {
+    console.error('Failed to load notifications', err)
+  }
+}
+
+function toggleNotifications() {
+  showNotifPanel.value = !showNotifPanel.value
+  if (showNotifPanel.value) {
+    // When opening, mark the latest as seen
+    if (notifications.value.length > 0) {
+      const latest = notifications.value[0].time
+      lastSeenTime.value = latest
+      localStorage.setItem('hms_last_seen_notif', latest)
+    }
+  }
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const seconds = Math.floor((now - date) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+// ─── Email Update ──────────────────────────────────────────────────────────
+
+const showEmailModal = ref(false)
+const newEmail       = ref('')
+
+function openEmailUpdate(current = '') {
+  newEmail.value = current || patient.value.email
+  showEmailModal.value = true
+}
+
+async function handleUpdateEmail() {
+  if (!newEmail.value) return
+  try {
+    const res = await updatePatientEmail(newEmail.value)
+    if (res?.status === 'success') {
+      showToast('Email updated successfully')
+      showEmailModal.value = false
+      patient.value.email = newEmail.value
+    } else {
+      showToast(res?.message || 'Update failed')
+    }
+  } catch (err) {
+    showToast(getErrorMessage(err, 'Update failed'))
+  }
 }
 
 async function handleDownload(type) {
@@ -424,6 +499,9 @@ onMounted(() => {
   loadDashboard()
   loadDoctors()
   loadPrescriptions()
+  loadNotifications()
+  // Poll notifications every 30s
+  setInterval(loadNotifications, 30000)
 })
 </script>
 
@@ -472,8 +550,46 @@ onMounted(() => {
       <div>
         <div class="page-title">{{ pageTitle }}</div>
         <div class="page-sub">{{ pageSub }}</div>
+        <button v-if="currentView !== 'dashboard'" class="btn-back" @click="showView('dashboard')" style="margin-top: 12px;">
+          <i class="bi bi-arrow-left"></i> Back
+        </button>
       </div>
       <div class="topbar-right">
+        <!-- NOTIFICATIONS -->
+        <div class="notif-wrapper">
+          <div class="notif-bell" :class="{ has_new: unreadCount > 0 }" @click="toggleNotifications">
+            <i class="bi bi-bell"></i>
+            <span class="notif-badge" v-if="unreadCount > 0">{{ unreadCount }}</span>
+          </div>
+          
+          <div class="notif-panel" v-if="showNotifPanel">
+            <div class="notif-header">
+              <span>Notifications</span>
+              <button class="btn-close-notif" @click="showNotifPanel = false"><i class="bi bi-x"></i></button>
+            </div>
+            <div class="notif-list">
+              <div v-if="notifications.length === 0" class="notif-empty">
+                No new notifications
+              </div>
+              <div v-for="n in notifications" :key="n.id" class="notif-item" :class="n.type">
+                <div class="notif-icon">
+                  <i v-if="n.type === 'success'" class="bi bi-check-circle-fill"></i>
+                  <i v-else-if="n.type === 'invalid_email'" class="bi bi-exclamation-triangle-fill"></i>
+                  <i v-else class="bi bi-info-circle-fill"></i>
+                </div>
+                <div class="notif-content">
+                  <div class="notif-title">{{ n.title }}</div>
+                  <div class="notif-msg">{{ n.message }}</div>
+                  <div class="notif-time">{{ timeAgo(n.time) }}</div>
+                  <button v-if="n.type === 'invalid_email'" class="btn btn-primary btn-sm" style="margin-top:8px" @click="openEmailUpdate()">
+                    Update Email ID
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="avatar sm" style="cursor:pointer" @click="showProfileModal = true">{{ patientInitial }}</div>
       </div>
     </div>
@@ -587,7 +703,6 @@ onMounted(() => {
           <div class="doc-avail" :class="d.is_available ? 'ok' : 'no'">
             <i :class="d.is_available ? 'bi bi-check-circle' : 'bi bi-x-circle'"></i>
             {{ d.is_available ? 'Available' : 'Unavailable' }}
-            <span v-if="d.booked_slots > 0">({{ d.booked_slots }} booked)</span>
           </div>
           <div class="doc-meta"><i class="bi bi-building"></i> {{ d.department || 'N/A' }}</div>
           <div class="doc-meta"><i class="bi bi-telephone"></i> {{ d.phone || 'N/A' }}</div>
@@ -628,9 +743,6 @@ onMounted(() => {
 
     <!-- VIEW: APT DETAIL -->
     <div v-if="currentView === 'apt-detail'">
-      <button class="btn btn-ghost btn-sm" style="margin-bottom:16px" @click="showView('appointments')">
-        <i class="bi bi-arrow-left"></i> Back
-      </button>
       <div class="card full" v-if="aptDetail">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
           <div style="font-family:'Sora',sans-serif;font-size:18px;font-weight:700">Appointment Information</div>
@@ -833,6 +945,21 @@ onMounted(() => {
       </div>
     </div>
   </div>
+  <!-- EMAIL UPDATE MODAL -->
+  <div class="modal-overlay" :class="{ open: showEmailModal }" @click.self="showEmailModal = false">
+    <div class="modal-box">
+      <button class="modal-close" @click="showEmailModal = false"><i class="bi bi-x"></i></button>
+      <div class="modal-title">Update Email Address</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:20px">Please provide a valid email address to receive appointment reminders and medical reports.</p>
+      <div class="form-group">
+        <label class="form-label">Email Address</label>
+        <input type="email" class="form-control" v-model="newEmail" placeholder="e.g. name@example.com" />
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" @click="handleUpdateEmail" :disabled="!newEmail">
+        Save Changes
+      </button>
+    </div>
+  </div>
 
   <!-- TOAST -->
   <div class="toast" :class="{ show: toastVisible }">{{ toastMsg }}</div>
@@ -879,7 +1006,37 @@ onMounted(() => {
 .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
 .page-title { font-family: 'Sora', sans-serif; font-size: 22px; font-weight: 700; }
 .page-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
-.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-right { display: flex; align-items: center; gap: 20px; }
+
+/* NOTIFICATIONS */
+.notif-wrapper { position: relative; }
+.notif-bell { width: 40px; height: 40px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; color: var(--muted); transition: all .2s; }
+.notif-bell:hover { border-color: var(--blue); color: var(--blue); }
+.notif-bell.has_new { color: var(--text); border-color: var(--blue-lt); background: var(--blue-lt); }
+.notif-badge { position: absolute; top: -5px; right: -5px; background: var(--red); color: white; border-radius: 50%; min-width: 18px; height: 18px; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid var(--bg); }
+
+.notif-panel { position: absolute; top: 50px; right: 0; width: 340px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,.12); z-index: 1000; overflow: hidden; animation: slideDown .25s ease; }
+@keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+.notif-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.notif-header span { font-weight: 700; font-size: 14px; }
+.btn-close-notif { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; }
+
+.notif-list { max-height: 400px; overflow-y: auto; }
+.notif-empty { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+
+.notif-item { display: flex; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); transition: background .2s; }
+.notif-item:hover { background: var(--bg); }
+.notif-item:last-child { border-bottom: none; }
+.notif-icon { flex-shrink: 0; margin-top: 2px; font-size: 18px; }
+.notif-item.success .notif-icon { color: var(--green); }
+.notif-item.invalid_email .notif-icon { color: var(--amber); }
+.notif-item.failed .notif-icon { color: var(--red); }
+
+.notif-content { flex: 1; }
+.notif-title { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+.notif-msg { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.notif-time { font-size: 11px; color: var(--muted); margin-top: 6px; opacity: .7; }
 
 /* CARDS */
 .card { background: var(--card); border-radius: 16px; border: 1px solid var(--border); padding: 20px 24px; }
@@ -939,6 +1096,22 @@ onMounted(() => {
 /* BUTTONS */
 .btn { padding: 8px 18px; border-radius: 9px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .18s; }
 .btn-primary { background: var(--blue); color: white; }
+.btn-back { 
+  background: transparent; 
+  border: 1px solid var(--blue); 
+  color: var(--blue); 
+  padding: 6px 14px; 
+  border-radius: 10px; 
+  font-size: 13px; 
+  font-weight: 600; 
+  display: inline-flex; 
+  align-items: center; 
+  gap: 6px; 
+  cursor: pointer; 
+  transition: all .18s; 
+}
+.btn-back:hover { background: var(--blue-lt); }
+.btn-back i { color: var(--blue); }
 .btn-primary:hover { background: #1d4ed8; }
 .btn-ghost { background: transparent; color: var(--blue); border: 1px solid var(--blue); }
 .btn-ghost:hover { background: var(--blue-lt); }

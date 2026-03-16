@@ -259,8 +259,8 @@ def _wrap_text(value, width=78):
 def _add_wrapped_field(lines, label, value, label_width=20, width=78):
     wrapped = _wrap_text(value, width=width)
     lines.append(f"{label:<{label_width}}: {wrapped[0]}")
-    for item in wrapped[1:]:
-        lines.append(f"{'':<{label_width}}  {item}")
+    for i in range(1, len(wrapped)):
+        lines.append(f"{'':<{label_width}}  {wrapped[i]}")
 
 
 def _normalize_medication_item(item):
@@ -734,7 +734,9 @@ def doctor_slots(doctor_id):
     # Fixed clinical slots every 1 hour for daytime OPD.
     all_slots = [
         "9:00 AM","10:00 AM","11:00 AM","12:00 PM",
-        "1:00 PM","2:00 PM","3:00 PM","4:00 PM"
+        "1:00 PM","2:00 PM","3:00 PM","4:00 PM",
+        "5:00 PM","6:00 PM","7:00 PM","8:00 PM",
+        "9:00 PM","10:00 PM","11:00 PM","12:00 AM"
     ]
 
     doctor_booked = {
@@ -937,6 +939,84 @@ def download_json():
         f'attachment; filename="{p.name.replace(" ", "_")}_data.json"'
     )
     return response
+
+
+# ─────────────────────────────────────────
+# API: NOTIFICATIONS (Using Appointment table remarks)
+# ─────────────────────────────────────────
+
+@dashboard_bp.route("/api/notifications", methods=["GET"])
+def get_notifications():
+    """
+    Returns email notification statuses derived from Appointment table remarks.
+    """
+    # We fetch appointments where an email attempt was made (remark exists)
+    # AND the appointment has not yet passed.
+    history = Appointment.query.filter(
+        Appointment.patient_id == g.user.id,
+        Appointment.remark.isnot(None),
+        Appointment.appointment_datetime > datetime.now()
+    ).order_by(Appointment.updated_at.desc()).limit(20).all()
+
+    notifications = []
+    for a in history:
+        msg = a.remark or ""
+        # Classification for frontend UI
+        if "Successfully" in msg:
+            ntype = "success"
+            title = "Email Sent"
+            appt_time = a.appointment_datetime.strftime('%I:%M %p') if a.appointment_datetime else "N/A"
+            text  = f"Reminder mail is successfully sent to your registered mail id for your doctor appointment at {appt_time}"
+        elif "No email provided" in msg or "invalid" in msg.lower():
+            ntype = "invalid_email"
+            title = "Invalid Email ID"
+            text  = "We couldn't send your appointment reminder because your email ID is missing or invalid. Please update it."
+        else:
+            ntype = "failed"
+            title = "Delivery Failed"
+            text  = f"Failed to send reminder for appointment with Dr. {a.doctor.name if a.doctor else 'N/A'}. This might be due to a network issue."
+
+        notifications.append({
+            "id": a.id,
+            "type": ntype,
+            "title": title,
+            "message": text,
+            "time": a.updated_at.isoformat() + "Z" if a.updated_at else None,
+            "appointment_id": a.id
+        })
+
+    return jsonify({
+        "status": "success",
+        "notifications": notifications
+    })
+
+
+@dashboard_bp.route("/api/profile/email", methods=["PUT"])
+def update_email():
+    """
+    Allows the patient to update their email address.
+    """
+    d = request.get_json() or {}
+    new_email = (d.get("email") or "").strip().lower()
+
+    if not new_email:
+        return jsonify({"status": "error", "message": "Email is required"}), 400
+
+    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_regex, new_email):
+        return jsonify({"status": "error", "message": "Invalid email format"}), 400
+
+    existing = Patient.query.filter(Patient.email == new_email, Patient.id != g.user.id).first()
+    if existing:
+        return jsonify({"status": "error", "message": "This email is already registered"}), 409
+
+    g.user.email = new_email
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "message": "Email updated successfully"
+    })
 
 
 
