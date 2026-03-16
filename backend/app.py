@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from itsdangerous import BadSignature, SignatureExpired
 from werkzeug.security import check_password_hash, generate_password_hash
+from dotenv import load_dotenv
 
 from extensions import db
 from routes.admin_routes import admin_bp
@@ -15,6 +16,8 @@ from routes.auth_routes import auth_bp
 from routes.doctor_routes import doctor_bp
 from utils.network_utils import get_actual_frontend_url
 from utils.token_utils import create_jwt_token, decode_jwt_token, get_serializer
+
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 app = Flask(__name__)
 

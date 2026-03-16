@@ -1,5 +1,5 @@
 from calendar import monthrange
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 from extensions import db
 from models.appointment import Appointment, AppointmentStatus
@@ -7,6 +7,8 @@ from models.models import PatientReminder
 from models.patient import Patient
 from utils.email_utils import send_patient_reminder_email
 from utils.reminder_utils import get_or_create_reminder_settings, month_period
+
+MIN_DAILY_REMINDER_LEAD_MINUTES = 30
 
 
 def _combine_today(clock_value):
@@ -43,17 +45,27 @@ def _create_patient_reminder(patient_id, reminder_type, title, message, schedule
     return True
 
 
-def _send_daily_reminders(settings):
-    today = datetime.now().date()
-    if settings.last_daily_sent_on == today:
-        return 0
+def _has_daily_reminder_for_appointment(patient_id, appointment_id, target_date):
+    existing = PatientReminder.query.filter(
+        PatientReminder.patient_id == patient_id,
+        PatientReminder.reminder_type == "daily",
+        PatientReminder.related_appointment_id == appointment_id,
+        db.func.date(PatientReminder.scheduled_for) == target_date.isoformat(),
+    ).first()
+    return existing is not None
 
+
+def _send_daily_reminders(settings):
+    now = datetime.now()
+    today = now.date()
     scheduled_for = _combine_today(settings.daily_time)
+    reminder_cutoff = now + timedelta(minutes=MIN_DAILY_REMINDER_LEAD_MINUTES)
     appointments = (
         Appointment.query
         .filter(
             db.func.date(Appointment.appointment_datetime) == today.isoformat(),
             Appointment.status == AppointmentStatus.BOOKED,
+            Appointment.appointment_datetime >= reminder_cutoff,
         )
         .all()
     )
@@ -70,6 +82,9 @@ def _send_daily_reminders(settings):
             f"{doctor.name if doctor else 'your doctor'} at "
             f"{appointment.appointment_datetime.strftime('%I:%M %p').lstrip('0')}."
         )
+        if _has_daily_reminder_for_appointment(patient.id, appointment.id, today):
+            continue
+
         created = _create_patient_reminder(
             patient.id,
             "daily",

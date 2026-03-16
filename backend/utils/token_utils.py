@@ -16,9 +16,9 @@ def generate_doctor_password_token(doctor_id):
 def create_jwt_token(user_id, email, role):
     # Short expiry for patient to test session expiry, long for others
     if role == "patient" or role is None:
-        expiry = timedelta(hours=24)
+        expiry = timedelta(hours=8)
     else:
-        expiry = timedelta(hours=24)
+        expiry = timedelta(hours=8)
         
     payload = {
         "user_id": user_id,

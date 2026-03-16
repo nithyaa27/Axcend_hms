@@ -30,7 +30,7 @@ def _make_celery(flask_app):
         beat_schedule={
             "run-reminder-dispatch-every-minute": {
                 "task": "reminders.dispatch",
-                "schedule": 60.0,
+                "schedule": 1,
             }
         },
     )
