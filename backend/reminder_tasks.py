@@ -58,6 +58,9 @@ def _has_daily_reminder_for_appointment(patient_id, appointment_id, target_date)
 def _send_daily_reminders(settings):
     now = datetime.now()
     today = now.date()
+    if settings.last_daily_sent_on == today:
+        return 0  # Daily reminders have already been sent for today.
+
     scheduled_for = _combine_today(settings.daily_time)
     reminder_cutoff = now + timedelta(minutes=MIN_DAILY_REMINDER_LEAD_MINUTES)
     appointments = (
@@ -141,6 +144,51 @@ def _send_monthly_reminders(settings):
     settings.last_monthly_sent_period = current_period
     db.session.commit()
     return sent_count
+
+
+def send_reminder_for_new_appointment(appointment):
+    """
+    Checks if an immediate daily reminder should be sent for a newly booked appointment.
+    This is for appointments booked for today, after the main daily reminder batch has run.
+    """
+    now = datetime.now()
+    # Only for appointments booked for today
+    if appointment.appointment_datetime.date() != now.date():
+        return
+
+    settings = get_or_create_reminder_settings()
+    if not settings.daily_enabled:
+        return
+
+    # Only trigger if the booking happens after the scheduled reminder time
+    if not _time_reached(settings.daily_time, now):
+        return
+
+    patient = appointment.patient
+    doctor = appointment.doctor
+    if not patient or not patient.email:
+        return
+
+    # Check if a reminder was already somehow created for this. Unlikely but safe.
+    if _has_daily_reminder_for_appointment(patient.id, appointment.id, now.date()):
+        return
+
+    message = (
+        f"Reminder: you have an appointment today with "
+        f"{doctor.name if doctor else 'your doctor'} at "
+        f"{appointment.appointment_datetime.strftime('%I:%M %p').lstrip('0')}."
+    )
+
+    created = _create_patient_reminder(
+        patient_id=patient.id,
+        reminder_type="daily",
+        title="Today's Appointment Reminder",
+        message=message,
+        scheduled_for=now,
+        appointment_id=appointment.id,
+    )
+    if created:
+        send_patient_reminder_email(patient.email, "HMS Appointment Reminder", message)
 
 
 def run_scheduled_reminders():

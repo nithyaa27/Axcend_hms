@@ -577,6 +577,15 @@ def book_appointment():
     db.session.add(new_apt)
     db.session.commit()
 
+    # If a patient books an appointment for today after the daily reminder
+    # time has passed, send them an immediate reminder.
+    try:
+        from reminder_tasks import send_reminder_for_new_appointment
+        send_reminder_for_new_appointment(new_apt)
+    except Exception:
+        # Fail silently. Booking success is more critical than the reminder.
+        pass
+
     return jsonify({
         "status":  "success",
         "message": f"Appointment booked with Dr. {doc.name} on {apt_dt.strftime('%B %d, %Y')} at {time_slot}"

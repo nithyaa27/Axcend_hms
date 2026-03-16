@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request, g
 from extensions import db
 from models.appointment import Appointment, AppointmentStatus
 from models.models import Doctor, DoctorAvailability, Prescription
+from utils.email_utils import send_patient_reminder_email
 from models.patient import Patient
 
 doctor_bp = Blueprint("doctor_bp", __name__, url_prefix="/api/doctor")
@@ -551,6 +552,7 @@ def transfer_candidates(doctor_id):
         if appt:
             target_time = appt.appointment_datetime
 
+    # Filter other doctors by the current doctor's department
     other_doctors = Doctor.query.filter(Doctor.id != doctor_id).all()
     candidates = []
 
@@ -559,6 +561,10 @@ def transfer_candidates(doctor_id):
         status_raw = (doc.status or "").strip().lower()
         if not status_raw:
             status_raw = "active"
+
+        # Only include doctors from the same department as the original doctor
+        if doc.department_id != current_doctor.department_id:
+            continue
             
         if status_raw not in {"available", "yes", "true", "1", "active"}:
             continue
@@ -633,6 +639,12 @@ def transfer_appointment(doctor_id, appointment_id):
     if not target_doctor:
         return jsonify({"error": "Target doctor not found"}), 404
 
+    # Validate target doctor's department
+    original_doctor = Doctor.query.get(doctor_id) # Fetch original doctor to get department_id
+    if not original_doctor:
+        return jsonify({"error": "Original doctor not found"}), 404
+    if target_doctor.department_id != original_doctor.department_id:
+        return jsonify({"error": "Target doctor must be in the same department as the original doctor"}), 400
     # Prevent double-booking the target doctor at the exact same time
     clash = Appointment.query.filter_by(
         doctor_id=target_doctor.id,
@@ -642,7 +654,30 @@ def transfer_appointment(doctor_id, appointment_id):
     if clash:
         return jsonify({"error": f"Dr. {target_doctor.name} already has a booking at this time"}), 409
 
+    # Store original doctor's name before changing appointment.doctor_id
+    original_doctor_name = appointment.doctor.name if appointment.doctor else "N/A"
+
     appointment.doctor_id = target_doctor.id
     db.session.commit()
     
+    # Send email notification to patient
+    patient = appointment.patient
+    if patient and patient.email:
+        subject = "Your Appointment Has Been Transferred - HMS City Hospital"
+        body = f"""
+Dear {patient.name},
+
+This is to inform you that your appointment originally scheduled with {original_doctor_name} on {appointment.appointment_datetime.strftime('%B %d, %Y')} at {appointment.appointment_datetime.strftime('%I:%M %p').lstrip('0')} has been transferred.
+
+Your new appointment is now with {target_doctor.name} on the same date and time: {appointment.appointment_datetime.strftime('%B %d, %Y')} at {appointment.appointment_datetime.strftime('%I:%M %p').lstrip('0')}.
+
+We apologize for any inconvenience this may cause. This transfer was due to an unforeseen emergency.
+
+If you have any questions or need further assistance, please contact the hospital administration.
+
+Thank you,
+HMS City Hospital
+        """
+        send_patient_reminder_email(patient.email, subject, body)
+
     return jsonify({"success": True, "message": "Appointment transferred successfully"})
