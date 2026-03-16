@@ -172,6 +172,55 @@
         </div>
       </section>
 
+      <section class="panel transfer-panel">
+        <div class="panel-head transfer-head">
+          <div>
+            <h2>Emergency Transfer Planner</h2>
+            <p class="panel-subtle">Move future appointments to another available doctor if you become unavailable.</p>
+          </div>
+          <label class="transfer-date-picker">
+            <span>Transfer Date</span>
+            <input v-model="transferDate" type="date" @change="loadTransferPlanner" />
+          </label>
+        </div>
+
+        <div class="transfer-summary">
+          <div class="transfer-metric">
+            <span>Booked appointments</span>
+            <strong>{{ transferAppointments.length }}</strong>
+          </div>
+          <div class="transfer-metric">
+            <span>Available doctors</span>
+            <strong>{{ transferDoctors.length }}</strong>
+          </div>
+          <div class="transfer-note" :class="{ error: transferFeedbackTone === 'error', success: transferFeedbackTone === 'success' }">
+            {{ transferFeedbackText }}
+          </div>
+        </div>
+
+        <div v-if="transferLoading" class="transfer-empty">Loading transfer planner...</div>
+        <div v-else-if="!transferAppointments.length" class="transfer-empty">
+          No booked appointments found for the selected date.
+        </div>
+        <div v-else class="transfer-grid">
+          <article v-for="appointment in transferAppointments" :key="`transfer-${appointment.id}`" class="transfer-card">
+            <div class="transfer-card-top">
+              <div>
+                <div class="transfer-time">{{ appointment.time }}</div>
+                <div class="transfer-patient">{{ appointment.patient_name }}</div>
+              </div>
+              <span class="transfer-status">Booked</span>
+            </div>
+            <div class="transfer-copy">
+              Patient will receive an email update after reassignment to another available doctor.
+            </div>
+            <button type="button" class="transfer-btn" @click="openTransferModal(appointment)">
+              Transfer Appointment
+            </button>
+          </article>
+        </div>
+      </section>
+
       <section class="panel">
         <h2>Today's Appointments</h2>
         <div class="table-wrap">
@@ -237,6 +286,57 @@
       </section>
     </section>
 
+    <div v-if="showTransferModal" class="modal-overlay" @click.self="closeTransferModal">
+      <div class="transfer-modal">
+        <button type="button" class="close-btn" @click="closeTransferModal">
+          <i class="bi bi-x-lg"></i>
+        </button>
+        <div class="transfer-modal-kicker">Appointment Transfer</div>
+        <h3>Reassign this patient carefully.</h3>
+        <p class="transfer-modal-copy">
+          Transfer {{ selectedTransferAppointment?.patient_name || "the patient" }} on
+          {{ selectedTransferAppointment ? formatDisplayDate(selectedTransferAppointment.date) : "" }}
+          at {{ selectedTransferAppointment?.time || "" }} to another available doctor.
+        </p>
+
+        <div v-if="transferDoctorLoading" class="transfer-empty">Checking available doctors...</div>
+        <div v-else-if="!transferDoctors.length" class="transfer-empty">
+          No doctors are currently available for this date and time.
+        </div>
+        <div v-else class="transfer-doctor-list">
+          <label
+            v-for="doctor in transferDoctors"
+            :key="`transfer-doctor-${doctor.id}`"
+            class="transfer-doctor-card"
+            :class="{ selected: selectedTransferDoctorId === doctor.id }"
+          >
+            <input v-model="selectedTransferDoctorId" type="radio" :value="doctor.id" />
+            <div>
+              <strong>{{ doctor.name }}</strong>
+              <span>{{ doctor.specialization || "General" }}</span>
+              <small>{{ doctor.department || "No department" }}</small>
+            </div>
+          </label>
+        </div>
+
+        <p v-if="transferFeedback" class="transfer-inline-feedback" :class="transferFeedbackTone">
+          {{ transferFeedback }}
+        </p>
+
+        <div class="transfer-modal-actions">
+          <button type="button" class="btn-secondary" @click="closeTransferModal">Cancel</button>
+          <button
+            type="button"
+            class="transfer-confirm"
+            :disabled="transferSubmitting || !selectedTransferDoctorId || !transferDoctors.length"
+            @click="submitTransfer"
+          >
+            {{ transferSubmitting ? "Transferring..." : "Confirm Transfer" }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showProfileModal" class="modal-overlay" @click.self="showProfileModal = false">
       <div class="profile-modal">
         <button type="button" class="close-btn" @click="showProfileModal = false">
@@ -280,6 +380,16 @@ export default {
       referenceDate: "",
       timeSlots: [9, 10, 11, 12, 14, 15, 16, 17],
       availabilityExpanded: false,
+      transferDate: "",
+      transferAppointments: [],
+      transferDoctors: [],
+      transferLoading: false,
+      transferDoctorLoading: false,
+      transferSubmitting: false,
+      transferFeedback: "",
+      showTransferModal: false,
+      selectedTransferAppointment: null,
+      selectedTransferDoctorId: null,
       showProfileModal: false,
       savingAvailability: false,
       availabilityFeedback: "",
@@ -352,6 +462,16 @@ export default {
       if (this.availabilityFeedback === "Availability updated") return "bi bi-check2-circle"
       if (this.availabilityFeedback === "Save failed") return "bi bi-exclamation-octagon"
       return this.availabilityDirty ? "bi bi-dot" : "bi bi-shield-check"
+    },
+    transferFeedbackTone() {
+      if (this.transferFeedback === "Transfer completed") return "success"
+      if (this.transferFeedback) return "error"
+      return "neutral"
+    },
+    transferFeedbackText() {
+      if (this.transferFeedback === "Transfer completed") return "Patient transfer completed and dashboard refreshed."
+      if (this.transferFeedback) return this.transferFeedback
+      return "Select a date to review future appointments and available replacement doctors."
     },
     todayAppointments() {
       return this.schedule
@@ -466,6 +586,77 @@ export default {
         query: this.doctorId ? { doctorId: String(this.doctorId) } : {},
       })
     },
+    initializeTransferDate() {
+      if (this.transferDate) return
+      const firstFuture = this.schedule
+        .filter((appointment) => appointment.status === "booked" && appointment.date >= this.referenceDate)
+        .sort((left, right) => new Date(left.datetime) - new Date(right.datetime))[0]
+      this.transferDate = firstFuture?.date || this.referenceDate || this.toDateKey(new Date())
+    },
+    async loadTransferPlanner() {
+      if (!this.doctorId || !this.transferDate) return
+      this.transferLoading = true
+      try {
+        const response = await api.get(`/api/doctor/${this.doctorId}/transfer-candidates`, {
+          params: { date: this.transferDate },
+        })
+        this.transferAppointments = response.data?.appointments || []
+        this.transferDoctors = response.data?.available_doctors || []
+      } catch (error) {
+        this.transferAppointments = []
+        this.transferDoctors = []
+        this.transferFeedback = error.response?.data?.error || "Failed to load transfer planner"
+      } finally {
+        this.transferLoading = false
+      }
+    },
+    async openTransferModal(appointment) {
+      this.selectedTransferAppointment = appointment
+      this.selectedTransferDoctorId = null
+      this.transferDoctorLoading = true
+      this.transferFeedback = ""
+      this.showTransferModal = true
+      try {
+        const response = await api.get(`/api/doctor/${this.doctorId}/transfer-candidates`, {
+          params: {
+            date: appointment.date,
+            appointment_id: appointment.id,
+          },
+        })
+        this.transferDoctors = response.data?.available_doctors || []
+        this.selectedTransferDoctorId = this.transferDoctors[0]?.id || null
+      } catch (error) {
+        this.transferDoctors = []
+        this.transferFeedback = error.response?.data?.error || "Unable to load available doctors"
+      } finally {
+        this.transferDoctorLoading = false
+      }
+    },
+    closeTransferModal() {
+      this.showTransferModal = false
+      this.selectedTransferAppointment = null
+      this.selectedTransferDoctorId = null
+      this.transferDoctorLoading = false
+    },
+    async submitTransfer() {
+      if (!this.selectedTransferAppointment || !this.selectedTransferDoctorId) return
+      this.transferSubmitting = true
+      this.transferFeedback = ""
+      try {
+        await api.post(
+          `/api/doctor/${this.doctorId}/appointments/${this.selectedTransferAppointment.id}/transfer`,
+          { target_doctor_id: this.selectedTransferDoctorId }
+        )
+        this.transferFeedback = "Transfer completed"
+        await this.loadDashboard()
+        await this.loadTransferPlanner()
+        this.closeTransferModal()
+      } catch (error) {
+        this.transferFeedback = error.response?.data?.error || "Transfer failed"
+      } finally {
+        this.transferSubmitting = false
+      }
+    },
     async loadDashboard() {
       if (!this.doctorId) {
         this.schedule = []
@@ -484,6 +675,8 @@ export default {
         const availabilityMap = this.buildAvailabilityMap(payload.availability || [])
         this.availabilityMap = availabilityMap
         this.savedAvailabilityMap = { ...availabilityMap }
+        this.initializeTransferDate()
+        await this.loadTransferPlanner()
       } catch (error) {
         console.error("Failed to load doctor dashboard:", error)
       }
@@ -799,6 +992,277 @@ export default {
   font-weight: 600;
 }
 
+.transfer-panel {
+  background:
+    radial-gradient(circle at top left, rgba(239, 246, 255, 0.9), rgba(255, 255, 255, 0.98)),
+    #ffffff;
+}
+
+.transfer-head {
+  align-items: flex-end;
+}
+
+.transfer-date-picker {
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.transfer-date-picker span {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.transfer-date-picker input {
+  border: 1px solid #d7e3f4;
+  border-radius: 16px;
+  padding: 13px 15px;
+  font-size: 14px;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.transfer-summary {
+  display: grid;
+  grid-template-columns: 160px 160px minmax(0, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.transfer-metric,
+.transfer-note {
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 18px 20px;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.transfer-metric span,
+.transfer-note {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.transfer-metric strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 30px;
+  line-height: 1;
+  color: #0f172a;
+}
+
+.transfer-note.success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.transfer-note.error {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.transfer-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.transfer-card {
+  border: 1px solid #dbe4f0;
+  border-radius: 22px;
+  padding: 20px;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+}
+
+.transfer-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.transfer-time {
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.transfer-patient {
+  margin-top: 6px;
+  color: #334155;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.transfer-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.transfer-copy {
+  margin-top: 16px;
+  min-height: 48px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.transfer-btn,
+.transfer-confirm,
+.btn-secondary {
+  border-radius: 16px;
+  padding: 13px 18px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.transfer-btn,
+.transfer-confirm {
+  border: 0;
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.2);
+}
+
+.btn-secondary {
+  border: 1px solid #dbe4f0;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.transfer-btn {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.transfer-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 20px;
+  padding: 28px;
+  text-align: center;
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.transfer-modal {
+  width: min(680px, 94vw);
+  background: #ffffff;
+  border-radius: 28px;
+  padding: 28px;
+  position: relative;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+}
+
+.transfer-modal-kicker {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #2563eb;
+  font-weight: 800;
+}
+
+.transfer-modal h3 {
+  margin: 10px 0 8px;
+  font-size: 28px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.transfer-modal-copy {
+  margin: 0 0 18px;
+  color: #475569;
+  line-height: 1.6;
+  font-size: 15px;
+}
+
+.transfer-doctor-list {
+  display: grid;
+  gap: 14px;
+}
+
+.transfer-doctor-card {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  border: 1px solid #dbe4f0;
+  border-radius: 20px;
+  padding: 18px;
+  cursor: pointer;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.transfer-doctor-card.selected {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  box-shadow: 0 10px 26px rgba(37, 99, 235, 0.12);
+  transform: translateY(-1px);
+}
+
+.transfer-doctor-card input {
+  margin-top: 4px;
+}
+
+.transfer-doctor-card strong,
+.transfer-doctor-card span,
+.transfer-doctor-card small {
+  display: block;
+}
+
+.transfer-doctor-card strong {
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.transfer-doctor-card span {
+  margin-top: 4px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.transfer-doctor-card small {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.transfer-inline-feedback {
+  margin: 16px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.transfer-inline-feedback.error {
+  color: #be123c;
+}
+
+.transfer-inline-feedback.success {
+  color: #15803d;
+}
+
+.transfer-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 22px;
+}
+
 .schedule-grid {
   overflow-x: auto;
   padding-top: 2px;
@@ -1032,6 +1496,11 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .transfer-summary,
+  .transfer-grid {
+    grid-template-columns: 1fr;
+  }
+
   .availability-board {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1055,6 +1524,12 @@ th {
   }
 
   .availability-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .transfer-head,
+  .transfer-modal-actions {
     flex-direction: column;
     align-items: stretch;
   }

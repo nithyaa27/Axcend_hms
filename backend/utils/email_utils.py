@@ -55,3 +55,8 @@ def send_patient_reminder_email(email, subject, message):
     msg = _build_message(subject, email, message)
     _send_email_sync(msg)
 
+
+def send_patient_transfer_email(email, subject, message):
+    msg = _build_message(subject, email, message)
+    _send_email_sync(msg)
+

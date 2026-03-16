@@ -4,8 +4,9 @@ from flask import Blueprint, jsonify, request, g
 
 from extensions import db
 from models.appointment import Appointment, AppointmentStatus
-from models.models import Doctor, DoctorAvailability, Prescription
+from models.models import Doctor, DoctorAvailability, DoctorSchedule, Prescription
 from models.patient import Patient
+from utils.email_utils import send_patient_transfer_email
 
 doctor_bp = Blueprint("doctor_bp", __name__, url_prefix="/api/doctor")
 MISSED_APPOINTMENT_GRACE_MINUTES = 30
@@ -79,6 +80,74 @@ def _get_reference_date(doctor_id):
         return future_booked.appointment_datetime.date()
 
     return ordered_rows[0].appointment_datetime.date()
+
+
+def _is_doctor_available_on_date(doctor_id, target_date):
+    entry = DoctorAvailability.query.filter_by(doctor_id=doctor_id, date=target_date).first()
+    if entry is None:
+        return True
+    return bool(entry.is_available)
+
+
+def _doctor_has_schedule_capacity(doctor_id, appointment_datetime):
+    target_date = appointment_datetime.date()
+    slot_time = appointment_datetime.time()
+    weekday = appointment_datetime.strftime("%A")
+    schedules = DoctorSchedule.query.filter_by(doctor_id=doctor_id, day_of_week=weekday).all()
+    has_schedule = len(schedules) > 0
+    is_leave = any((item.work_type or "").strip().lower() == "leave" for item in schedules)
+    if is_leave:
+        return False, "Doctor is on leave"
+
+    if has_schedule:
+        windows = []
+        for item in schedules:
+            try:
+                start_t = datetime.strptime((item.shift_start or "09:00").strip(), "%H:%M").time()
+                end_t = datetime.strptime((item.shift_end or "17:00").strip(), "%H:%M").time()
+                windows.append((start_t, end_t))
+            except ValueError:
+                windows.append(
+                    (
+                        datetime.strptime("09:00", "%H:%M").time(),
+                        datetime.strptime("17:00", "%H:%M").time(),
+                    )
+                )
+    else:
+        windows = [
+            (
+                datetime.strptime("09:00", "%H:%M").time(),
+                datetime.strptime("17:00", "%H:%M").time(),
+            )
+        ]
+
+    lunch_start = datetime.strptime("13:00", "%H:%M").time()
+    lunch_end = datetime.strptime("14:00", "%H:%M").time()
+    in_window = any(start_t <= slot_time < end_t for (start_t, end_t) in windows)
+    in_lunch = lunch_start <= slot_time < lunch_end
+
+    if not _is_doctor_available_on_date(doctor_id, target_date):
+        return False, "Doctor is unavailable on that date"
+    if not in_window:
+        return False, "Outside doctor's shift hours"
+    if in_lunch:
+        return False, "During lunch break"
+    return True, None
+
+
+def _serialize_transfer_appointment(appt):
+    patient = appt.patient
+    return {
+        "id": appt.id,
+        "reference": f"apt-{appt.id}",
+        "datetime": appt.appointment_datetime.isoformat(),
+        "date": appt.appointment_datetime.date().isoformat(),
+        "time": appt.appointment_datetime.strftime("%I:%M %p").lstrip("0"),
+        "patient_name": patient.name if patient else f"Patient {appt.patient_id}",
+        "patient_email": patient.email if patient else None,
+        "patient_phone": patient.phone if patient else None,
+        "status": appt.status,
+    }
 
 
 def _serialize_appointment(appt, rx, now_local):
@@ -270,6 +339,157 @@ def update_availability(doctor_id):
                 {"date": parsed_date.isoformat(), "is_available": normalized_dates[parsed_date]}
                 for parsed_date in sorted(normalized_dates.keys())
             ],
+        }
+    )
+
+
+@doctor_bp.route("/<int:doctor_id>/transfer-candidates", methods=["GET"])
+def transfer_candidates(doctor_id):
+    auth_error = _require_doctor_route_access(doctor_id)
+    if auth_error:
+        return auth_error
+
+    date_str = (request.args.get("date") or "").strip()
+    if not date_str:
+        return jsonify({"error": "date query parameter is required"}), 400
+
+    try:
+        target_date = date.fromisoformat(date_str)
+    except ValueError:
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+
+    appointment_id = request.args.get("appointment_id", type=int)
+
+    appointments = (
+        Appointment.query.filter(
+            Appointment.doctor_id == doctor_id,
+            Appointment.status == AppointmentStatus.BOOKED,
+            db.func.date(Appointment.appointment_datetime) == target_date.isoformat(),
+        )
+        .order_by(Appointment.appointment_datetime.asc())
+        .all()
+    )
+
+    available_doctors = []
+    doctors = (
+        Doctor.query.filter(Doctor.id != doctor_id)
+        .order_by(Doctor.name.asc())
+        .all()
+    )
+    selected_appointment = None
+    if appointment_id:
+        selected_appointment = next((appt for appt in appointments if appt.id == appointment_id), None)
+        if not selected_appointment:
+            return jsonify({"error": "Selected appointment is not scheduled for that date"}), 404
+
+    appointment_datetime = selected_appointment.appointment_datetime if selected_appointment else None
+
+    for doctor in doctors:
+        status_raw = (doctor.status or "").strip().lower()
+        if status_raw not in {"available", "yes", "true", "1", "active"}:
+            continue
+
+        availability_ok = _is_doctor_available_on_date(doctor.id, target_date)
+        reason = None
+        if appointment_datetime and availability_ok:
+            availability_ok, reason = _doctor_has_schedule_capacity(doctor.id, appointment_datetime)
+
+        if not availability_ok:
+            continue
+
+        available_doctors.append(
+            {
+                "id": doctor.id,
+                "name": doctor.name,
+                "email": doctor.email,
+                "specialization": doctor.specialization,
+                "department": doctor.department.name if doctor.department else None,
+            }
+        )
+
+    return jsonify(
+        {
+            "date": target_date.isoformat(),
+            "appointments": [_serialize_transfer_appointment(appt) for appt in appointments],
+            "available_doctors": available_doctors,
+        }
+    )
+
+
+@doctor_bp.route("/<int:doctor_id>/appointments/<int:appointment_id>/transfer", methods=["POST"])
+def transfer_appointment(doctor_id, appointment_id):
+    auth_error = _require_doctor_route_access(doctor_id)
+    if auth_error:
+        return auth_error
+
+    appointment = Appointment.query.filter_by(
+        id=appointment_id,
+        doctor_id=doctor_id,
+        status=AppointmentStatus.BOOKED,
+    ).first()
+    if not appointment:
+        return jsonify({"error": "Booked appointment not found"}), 404
+
+    if appointment.appointment_datetime <= datetime.now():
+        return jsonify({"error": "Only future appointments can be transferred"}), 409
+
+    data = request.get_json(silent=True) or {}
+    target_doctor_id = data.get("target_doctor_id")
+    try:
+        target_doctor_id = int(target_doctor_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "target_doctor_id is required"}), 400
+
+    if target_doctor_id == doctor_id:
+        return jsonify({"error": "Choose a different doctor for transfer"}), 400
+
+    target_doctor = Doctor.query.get(target_doctor_id)
+    if not target_doctor:
+        return jsonify({"error": "Target doctor not found"}), 404
+
+    status_raw = (target_doctor.status or "").strip().lower()
+    if status_raw not in {"available", "yes", "true", "1", "active"}:
+        return jsonify({"error": "Target doctor is not active"}), 409
+
+    schedule_ok, schedule_reason = _doctor_has_schedule_capacity(target_doctor_id, appointment.appointment_datetime)
+    if not schedule_ok:
+        return jsonify({"error": schedule_reason or "Target doctor is unavailable"}), 409
+
+    conflict = Appointment.query.filter(
+        Appointment.doctor_id == target_doctor_id,
+        Appointment.status == AppointmentStatus.BOOKED,
+        Appointment.appointment_datetime == appointment.appointment_datetime,
+        Appointment.id != appointment.id,
+    ).first()
+    if conflict:
+        return jsonify({"error": "Target doctor already has an appointment at this time"}), 409
+
+    previous_doctor_name = appointment.doctor.name if appointment.doctor else f"Doctor {doctor_id}"
+    appointment.doctor_id = target_doctor_id
+    db.session.commit()
+
+    patient = appointment.patient
+    if patient and patient.email:
+        transfer_message = (
+            f"Your appointment on {appointment.appointment_datetime.strftime('%B %d, %Y')} at "
+            f"{appointment.appointment_datetime.strftime('%I:%M %p').lstrip('0')} has been transferred "
+            f"from {previous_doctor_name} to {target_doctor.name}."
+        )
+        send_patient_transfer_email(
+            patient.email,
+            "HMS Appointment Transfer Update",
+            transfer_message,
+        )
+
+    return jsonify(
+        {
+            "success": True,
+            "appointment": _serialize_transfer_appointment(appointment),
+            "target_doctor": {
+                "id": target_doctor.id,
+                "name": target_doctor.name,
+                "specialization": target_doctor.specialization,
+            },
         }
     )
 
