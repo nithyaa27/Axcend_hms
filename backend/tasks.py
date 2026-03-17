@@ -123,9 +123,9 @@ def sync_appointment_statuses():
 
 # scheduler configuration (following HMS_Source pattern)
 celery_app.conf.beat_schedule = {
-    "check-appointments-every-30-seconds": {
+    "check-appointments-every-5-seconds": {
         "task": "tasks.send_appointment_reminders",
-        "schedule": 30.0,
+        "schedule": 5.0,
     },
     "sync-appointment-statuses-every-minute": {
         "task": "tasks.sync_appointment_statuses",
