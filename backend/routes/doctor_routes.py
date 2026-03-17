@@ -112,7 +112,6 @@ def dashboard(doctor_id):
     appointments, total distinct patients, and a detailed schedule for the current week.
     """
     auth_error = _require_doctor_route_access(doctor_id)
-    auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error
 
@@ -191,6 +190,14 @@ def dashboard(doctor_id):
             },
             "schedule": schedule_data,
             "availability": availability_data,
+            "doctor_schedules": [
+                {
+                    "day_of_week": s.day_of_week,
+                    "shift_start": s.shift_start,
+                    "shift_end": s.shift_end,
+                    "work_type": s.work_type
+                } for s in doctor.schedules
+            ],
             "completed_appointments": completed_data,
             "reference_date": reference_date.isoformat(),
         }
@@ -203,7 +210,6 @@ def update_availability(doctor_id):
     Updates the doctor's daily availability status (Available/Unavailable) 
     for a given set of dates.
     """
-    auth_error = _require_doctor_route_access(doctor_id)
     auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error
@@ -242,7 +248,6 @@ def get_treatment(doctor_id, appointment_id):
     Retrieves the treatment/prescription details for a specific appointment,
     along with a brief history of the patient's past prescriptions.
     """
-    auth_error = _require_doctor_route_access(doctor_id)
     auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error
@@ -294,7 +299,6 @@ def create_or_update_treatment(doctor_id, appointment_id):
     Records or updates a medical prescription for an appointment.
     Automatically marks the appointment as 'COMPLETED' upon successful submission.
     """
-    auth_error = _require_doctor_route_access(doctor_id)
     auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error
@@ -382,7 +386,6 @@ def completed_appointments(doctor_id):
     """
     Lists all past appointments that have been successfully treated/completed.
     """
-    auth_error = _require_doctor_route_access(doctor_id)
     auth_error = _require_doctor_route_access(doctor_id)
     if auth_error:
         return auth_error
@@ -475,8 +478,8 @@ def update_appointment_status(doctor_id, appointment_id):
 
     data = request.get_json() or {}
     status = (data.get("status") or "").strip().lower()
-    if status not in {AppointmentStatus.BOOKED, AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED}:
-        return jsonify({"error": "status must be booked/completed/cancelled"}), 400
+    if status not in {AppointmentStatus.BOOKED, AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED, AppointmentStatus.VISITED}:
+        return jsonify({"error": "status must be booked/completed/cancelled/visited"}), 400
 
     appointment = Appointment.query.filter_by(id=appointment_id, doctor_id=doctor_id).first()
     if not appointment:

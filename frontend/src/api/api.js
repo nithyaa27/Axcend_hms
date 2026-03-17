@@ -33,6 +33,7 @@ export async function bookAppointment(doctorId, date, timeSlot) {
   return res.data
 }
 
+
 export async function cancelAppointment(aptId) {
   const res = await api.post(`/api/appointments/${aptId}/cancel`)
   return res.data
@@ -110,8 +111,9 @@ export async function getNotifications() {
   return res.data
 }
 
-export async function updatePatientEmail(email) {
-  const res = await api.put('/api/profile/email', { email })
+
+export async function updatePatientEmail(email, password) {
+  const res = await api.put('/api/profile/email', { email, password })
   return res.data
 }
 

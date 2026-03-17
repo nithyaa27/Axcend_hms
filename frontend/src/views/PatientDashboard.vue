@@ -94,9 +94,13 @@ const patientInitial = computed(() => (patient.value.name || 'P')[0].toUpperCase
 // ─── Dashboard ─────────────────────────────────────────────────────────────
 
 const upcomingApts   = ref([])
-const todayReminders = ref([])
 const nextApt        = computed(() => upcomingApts.value[0] || null)
 const today          = new Date().toISOString().split('T')[0]
+const sevenDaysFromToday = computed(() => {
+  const d = new Date()
+  d.setDate(d.getDate() + 7)
+  return d.toISOString().split('T')[0]
+})
 
 async function loadDashboard() {
   try {
@@ -108,10 +112,6 @@ async function loadDashboard() {
     const apts = await getAppointments('upcoming')
     if (apts?.appointments) {
       upcomingApts.value = apts.appointments
-      const todayStr = new Date().toDateString()
-      todayReminders.value = apts.appointments.filter(a =>
-        a.date_full && new Date(a.date_full).toDateString() === todayStr
-      )
     }
   } catch (err) {
     if (redirectToLoginIfUnauthorized(err)) return
@@ -458,18 +458,23 @@ function timeAgo(dateStr) {
 
 // ─── Email Update ──────────────────────────────────────────────────────────
 
-const showEmailModal = ref(false)
-const newEmail       = ref('')
+const showEmailModal  = ref(false)
+const newEmail        = ref('')
+const confirmPassword = ref('')
 
 function openEmailUpdate(current = '') {
-  newEmail.value = current || patient.value.email
-  showEmailModal.value = true
+  newEmail.value        = current || patient.value.email
+  confirmPassword.value = ''
+  showEmailModal.value  = true
 }
 
 async function handleUpdateEmail() {
-  if (!newEmail.value) return
+  if (!newEmail.value || !confirmPassword.value) {
+    showToast('Both email and password are required')
+    return
+  }
   try {
-    const res = await updatePatientEmail(newEmail.value)
+    const res = await updatePatientEmail(newEmail.value, confirmPassword.value)
     if (res?.status === 'success') {
       showToast('Email updated successfully')
       showEmailModal.value = false
@@ -492,6 +497,7 @@ async function handleDownload(type) {
     showToast(getErrorMessage(err, 'Download failed. Please try again.'))
   }
 }
+
 
 // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -628,18 +634,6 @@ onMounted(() => {
           </div>
           <div v-else style="opacity:.7;font-size:14px">No upcoming appointments.</div>
         </div>
-        <div class="card">
-          <div class="card-title">Reminders</div>
-          <div class="reminder-list">
-            <div v-if="todayReminders.length === 0" class="empty-state" style="padding:20px">
-              <i class="bi bi-bell-slash"></i>No reminders for today
-            </div>
-            <div class="reminder-item" v-for="(r, i) in todayReminders" :key="i">
-              <i class="bi bi-bell-fill"></i>
-              <span>Appointment today with <strong>{{ r.doctor }}</strong> at {{ r.time }}</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="card full">
@@ -707,9 +701,13 @@ onMounted(() => {
           <div class="doc-meta"><i class="bi bi-building"></i> {{ d.department || 'N/A' }}</div>
           <div class="doc-meta"><i class="bi bi-telephone"></i> {{ d.phone || 'N/A' }}</div>
           <div class="doc-actions">
-            <button class="btn btn-primary" :disabled="!d.is_available" @click="openBookModal(d)">
-              <i class="bi bi-calendar-plus"></i> Book
-            </button>
+             <button 
+               class="btn btn-primary" 
+               :disabled="!d.is_available" 
+               @click="openBookModal(d)"
+             >
+               <i class="bi bi-calendar-plus"></i> Book
+             </button>
           </div>
         </div>
       </div>
@@ -852,7 +850,15 @@ onMounted(() => {
         <div class="detail-grid">
           <div class="detail-box"><div class="detail-box-label">Full Name</div><div class="detail-box-val">{{ patient.name }}</div></div>
           <div class="detail-box"><div class="detail-box-label">Patient ID</div><div class="detail-box-val">{{ patient.patient_uid }}</div></div>
-          <div class="detail-box"><div class="detail-box-label">Email</div><div class="detail-box-val">{{ patient.email }}</div></div>
+          <div class="detail-box">
+            <div class="detail-box-label">Email</div>
+            <div class="detail-box-val" style="display:flex;align-items:center;justify-content:space-between">
+              {{ patient.email }}
+              <button class="btn-icon-sm" @click="openEmailUpdate(patient.email)" title="Edit Email">
+                <i class="bi bi-pencil-square"></i>
+              </button>
+            </div>
+          </div>
           <div class="detail-box"><div class="detail-box-label">Gender</div><div class="detail-box-val">{{ patient.gender || 'N/A' }}</div></div>
         </div>
       </div>
@@ -869,7 +875,10 @@ onMounted(() => {
       </div>
       <div class="form-group">
         <label class="form-label">Select Date</label>
-        <input type="date" class="form-control" v-model="bookDate" :min="today" @change="loadSlots" />
+        <input type="date" class="form-control" v-model="bookDate" :min="today" :max="sevenDaysFromToday" @change="loadSlots" />
+        <p style="font-size:11px;color:var(--muted);margin-top:4px">
+          <i class="bi bi-info-circle"></i> Booking is open for next 7 days only.
+        </p>
       </div>
       <div class="form-group">
         <label class="form-label">Available Slots</label>
@@ -879,16 +888,20 @@ onMounted(() => {
         <div v-else-if="dailyCount > 0" style="background:#fffbeb;border:1px solid #fcd34d;color:#d97706;border-radius:10px;padding:8px 14px;font-size:12px;margin-bottom:10px">
           <i class="bi bi-info-circle"></i> <strong>{{ dailyCount }}/{{ dailyLimit }}</strong> appointments booked on this day.
         </div>
-        <div class="slot-grid" v-if="slots.length > 0">
-          <div
-            class="slot-btn"
-            v-for="s in slots" :key="s.slot"
-            :class="{ taken: !s.available, selected: bookSlot === s.slot }"
-            :title="s.available ? '' : slotReasonLabel(s.reason)"
-            @click="s.available && selectBookSlot(s.slot)"
-          >
-            {{ s.slot }}{{ !s.available ? (s.reason === 'your_appointment' ? ' 🙋' : s.reason === 'daily_limit' ? ' 🚫' : ' ✗') : '' }}
-          </div>
+        <div class="slot-grid" v-if="slots.some(s => s.available)">
+          <template v-for="s in slots" :key="s.slot">
+            <div
+              class="slot-btn"
+              v-if="s.available"
+              :class="{ selected: bookSlot === s.slot }"
+              @click="selectBookSlot(s.slot)"
+            >
+              {{ s.slot }}
+            </div>
+          </template>
+        </div>
+        <div v-else-if="bookDate" class="empty-state" style="padding:10px 0; font-size:13px">
+          <i class="bi bi-calendar-x" style="font-size:20px"></i> No available slots for this date.
         </div>
         <p v-else style="color:var(--muted);font-size:13px">Pick a date first</p>
       </div>
@@ -905,20 +918,27 @@ onMounted(() => {
       <div class="modal-title">Reschedule Appointment</div>
       <div class="form-group">
         <label class="form-label">New Date</label>
-        <input type="date" class="form-control" v-model="reschedDate" :min="today" @change="loadReschedSlots" />
+        <input type="date" class="form-control" v-model="reschedDate" :min="today" :max="sevenDaysFromToday" @change="loadReschedSlots" />
+        <p style="font-size:11px;color:var(--muted);margin-top:4px">
+          <i class="bi bi-info-circle"></i> Rescheduling is open for next 7 days only.
+        </p>
       </div>
       <div class="form-group">
         <label class="form-label">Available Slots</label>
-        <div class="slot-grid" v-if="reschedSlots.length > 0">
-          <div
-            class="slot-btn"
-            v-for="s in reschedSlots" :key="s.slot"
-            :class="{ taken: !s.available, selected: reschedSlot === s.slot }"
-            :title="s.available ? 'Available' : slotReasonLabel(s.reason)"
-            @click="s.available && (reschedSlot = s.slot)"
-          >
-            {{ s.slot }}
-          </div>
+        <div class="slot-grid" v-if="reschedSlots.some(s => s.available)">
+          <template v-for="s in reschedSlots" :key="s.slot">
+            <div
+              class="slot-btn"
+              v-if="s.available"
+              :class="{ selected: reschedSlot === s.slot }"
+              @click="reschedSlot = s.slot"
+            >
+              {{ s.slot }}
+            </div>
+          </template>
+        </div>
+        <div v-else-if="reschedDate" class="empty-state" style="padding:10px 0; font-size:13px">
+          <i class="bi bi-calendar-x" style="font-size:20px"></i> No available slots for this date.
         </div>
         <p v-else style="color:var(--muted);font-size:13px">Pick a date first</p>
       </div>
@@ -939,7 +959,15 @@ onMounted(() => {
         <div style="font-size:13px;color:var(--muted)">Patient ID: {{ patient.patient_uid }}</div>
       </div>
       <div class="detail-grid">
-        <div class="detail-box"><div class="detail-box-label">Email</div><div class="detail-box-val">{{ patient.email }}</div></div>
+        <div class="detail-box">
+          <div class="detail-box-label">Email</div>
+          <div class="detail-box-val" style="display:flex;align-items:center;justify-content:space-between">
+            {{ patient.email }}
+            <button class="btn-icon-sm" @click="openEmailUpdate(patient.email)" title="Edit Email">
+              <i class="bi bi-pencil-square"></i>
+            </button>
+          </div>
+        </div>
         <div class="detail-box"><div class="detail-box-label">Gender</div><div class="detail-box-val">{{ patient.gender || 'N/A' }}</div></div>
         <div class="detail-box"><div class="detail-box-label">Patient UID</div><div class="detail-box-val">{{ patient.patient_uid }}</div></div>
       </div>
@@ -950,13 +978,20 @@ onMounted(() => {
     <div class="modal-box">
       <button class="modal-close" @click="showEmailModal = false"><i class="bi bi-x"></i></button>
       <div class="modal-title">Update Email Address</div>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:20px">Please provide a valid email address to receive appointment reminders and medical reports.</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:20px">Please provide your new email and confirm with your password to save changes.</p>
+      
       <div class="form-group">
-        <label class="form-label">Email Address</label>
+        <label class="form-label">New Email Address</label>
         <input type="email" class="form-control" v-model="newEmail" placeholder="e.g. name@example.com" />
       </div>
-      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" @click="handleUpdateEmail" :disabled="!newEmail">
-        Save Changes
+      
+      <div class="form-group" style="margin-top:16px">
+        <label class="form-label">Confirm Password</label>
+        <input type="password" class="form-control" v-model="confirmPassword" placeholder="Enter your current password" />
+      </div>
+
+      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:20px" @click="handleUpdateEmail" :disabled="!newEmail || !confirmPassword">
+        <i class="bi bi-check-circle"></i> Save Changes
       </button>
     </div>
   </div>
@@ -1067,10 +1102,6 @@ onMounted(() => {
 .btn-view-apt { margin-top: 20px; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); color: white; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .2s; text-decoration: none; display: inline-block; }
 .btn-view-apt:hover { background: rgba(255,255,255,.25); }
 
-/* REMINDERS */
-.reminder-list { display: flex; flex-direction: column; gap: 10px; }
-.reminder-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--amber-lt); border-left: 3px solid var(--amber); border-radius: 10px; font-size: 13px; }
-.reminder-item i { color: var(--amber); margin-top: 1px; flex-shrink: 0; }
 
 /* QUICK ACTIONS */
 .qa-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
@@ -1117,6 +1148,22 @@ onMounted(() => {
 .btn-ghost:hover { background: var(--blue-lt); }
 .btn-danger { background: var(--red); color: white; }
 .btn-danger:hover { background: #b91c1c; }
+.btn-icon-sm {
+  background: none;
+  border: none;
+  color: var(--blue);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .2s;
+}
+.btn-icon-sm:hover {
+  background: var(--blue-lt);
+  transform: scale(1.1);
+}
 .btn-sm { padding: 5px 12px; font-size: 12px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 

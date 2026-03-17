@@ -532,7 +532,14 @@ with app.app_context():
             conn.execute(text("ALTER TABLE appointments ADD COLUMN remark VARCHAR(255)"))
             conn.commit()
     except Exception:
-        pass  # Column already exists — safe to ignore
+        pass
+
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE appointments ADD COLUMN missed_mail_sent BOOLEAN DEFAULT 0"))
+            conn.commit()
+    except Exception:
+        pass
     _ensure_default_admin()
 
 if __name__ == "__main__":

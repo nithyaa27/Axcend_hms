@@ -1,5 +1,6 @@
 from datetime import datetime
 from extensions import db
+from werkzeug.security import check_password_hash
 
 class Patient(db.Model):
 
@@ -15,3 +16,6 @@ class Patient(db.Model):
     gender = db.Column(db.String(10), nullable=False)
     role = db.Column(db.String(20), default="patient")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def check_password(self, password):
+        return check_password_hash(self.password, password)

@@ -3,12 +3,12 @@ import json
 import re
 from collections import OrderedDict
 from flask import Response, Blueprint, request, jsonify, g
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 
 from extensions import db
 from models.patient import Patient
 from models.appointment import Appointment, AppointmentStatus
-from models.models import Doctor, DoctorSchedule, Department, Prescription
+from models.models import Doctor, DoctorSchedule, Department, Prescription, DoctorAvailability
 
 # ==========================================
 # Dashboard & Patient Routes Blueprint
@@ -83,6 +83,12 @@ def _derive_appointment_state(apt, now=None):
         base["display_label"] = "Cancelled"
         return base
 
+    if status == AppointmentStatus.VISITED:
+        base["display_status"] = "visited"
+        base["display_label"] = "Patient Arrived"
+        base["status_note"] = "You have checked in for this appointment."
+        return base
+
     # For booked appointments, derive missed/not-visited states based on elapsed time.
     if dt >= now:
         base["display_status"] = "booked"
@@ -99,14 +105,15 @@ def _derive_appointment_state(apt, now=None):
         return base
 
     elapsed = now - dt
-    if elapsed >= timedelta(days=2):
+    if elapsed >= timedelta(hours=24):
         base["display_status"] = "not_visited_cancelled"
-        base["display_label"] = "Not Visited Cancelled"
-        base["status_note"] = "Appointment not visited for 2+ days. Marked as cancelled."
+        base["display_label"] = "Cancelled"
+        base["status_note"] = "Appointment not visited for 24 hours. Marked as cancelled."
     else:
         base["display_status"] = "not_visited"
         base["display_label"] = "Not Visited"
-        base["status_note"] = "Appointment was missed."
+        base["reschedulable"] = True
+        base["status_note"] = "Appointment was missed. You can still reschedule within 24 hours."
     return base
 
 
@@ -622,16 +629,18 @@ def cancel_appointment(apt_id):
 def reschedule_appointment(apt_id):
     apt = Appointment.query.filter_by(id=apt_id, patient_id=g.user.id).first_or_404()
 
-    if apt.status not in {AppointmentStatus.BOOKED, AppointmentStatus.NOT_ATTENDED}:
+    if apt.status not in {AppointmentStatus.BOOKED, AppointmentStatus.NOT_ATTENDED, AppointmentStatus.NOT_VISITED}:
         return jsonify({"status": "error", "message": "Only booked or not attended appointments can be rescheduled"}), 400
 
     now = datetime.now()
     apt_dt = apt.appointment_datetime
-    if apt_dt and apt_dt.date() < now.date():
-        return jsonify({
-            "status": "error",
-            "message": "Appointment was not visited and cannot be rescheduled after the day has passed."
-        }), 400
+    if apt_dt:
+        elapsed = now - apt_dt
+        if elapsed >= timedelta(hours=24):
+            return jsonify({
+                "status": "error",
+                "message": "Appointment passed more than 24 hours ago and cannot be rescheduled."
+            }), 400
 
     d        = request.get_json() or {}
     date_str = d.get("date")
@@ -660,6 +669,7 @@ def reschedule_appointment(apt_id):
     apt.appointment_datetime = new_dt
     apt.status = AppointmentStatus.BOOKED
     apt.mail_sent = False  # Allow new reminder emails
+    apt.missed_mail_sent = False # Allow new missed mail if they miss it again
     db.session.commit()
     return jsonify({"status": "success", "message": "Appointment rescheduled"})
 
@@ -696,6 +706,9 @@ def find_doctors():
         status_raw = (doc.status or "").strip().lower()
         is_available = status_raw in {"available", "yes", "true", "1", "active"}
 
+        today_name = datetime.now().strftime("%A")
+        today_sched = next((s for s in doc.schedules if s.day_of_week == today_name), None)
+
         result.append({
             "id":             doc.id,
             "name":           doc.name,
@@ -731,12 +744,31 @@ def doctor_slots(doctor_id):
     if not doc:
         return jsonify({"status": "error", "message": "Doctor not found"}), 404
 
-    # Fixed clinical slots every 1 hour for daytime OPD.
+    # Check for specific availability toggle for this date
+    availability = DoctorAvailability.query.filter_by(doctor_id=doctor_id, date=target).first()
+    if availability and not availability.is_available:
+        return jsonify({
+            "status": "success",
+            "slots": [],
+            "reason": "doctor_unavailable"
+        })
+
+    # Enforce 7-day booking window
+    today_date = datetime.now().date()
+    max_date = today_date + timedelta(days=7)
+    if target > max_date:
+        return jsonify({
+            "status": "error", 
+            "message": f"Booking for {date_str} will open 7 days prior. Please book at that time."
+        }), 400
+
+    # Fixed clinical slots for Normal & Emergency hours.
+    # Normal hours: 9:00 AM to 8:00 PM (Last slot starts at 8 PM). 
+    # Slots starting at 9:00 PM or later are Reserved for Emergency.
     all_slots = [
         "9:00 AM","10:00 AM","11:00 AM","12:00 PM",
         "1:00 PM","2:00 PM","3:00 PM","4:00 PM",
-        "5:00 PM","6:00 PM","7:00 PM","8:00 PM",
-        "9:00 PM","10:00 PM","11:00 PM","12:00 AM"
+        "5:00 PM","6:00 PM","7:00 PM","8:00 PM"
     ]
 
     doctor_booked = {
@@ -773,18 +805,23 @@ def doctor_slots(doctor_id):
     has_schedule = len(schedules) > 0
     is_leave = any((s.work_type or "").strip().lower() == "leave" for s in schedules)
 
-    # If no schedule exists, assume 09:00-17:00 working day.
-    if has_schedule and not is_leave:
-        windows = []
+    nine_pm = datetime.strptime("09:00 PM", "%I:%M %p").time()
+    mid_time = datetime.strptime("00:00", "%H:%M").time()
+
+    # Determine windows separately for Normal and Emergency work types
+    normal_windows = []
+    
+    if not has_schedule or is_leave:
+        # Default fallback if no schedule: 09:00 to 20:00 is Normal OPD
+        normal_windows = [(datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("20:00", "%H:%M").time())]
+    else:
         for s in schedules:
             try:
-                start_t = datetime.strptime((s.shift_start or "09:00").strip(), "%H:%M").time()
-                end_t = datetime.strptime((s.shift_end or "17:00").strip(), "%H:%M").time()
-                windows.append((start_t, end_t))
+                st = datetime.strptime((s.shift_start or "09:00").strip(), "%H:%M").time()
+                et = datetime.strptime((s.shift_end   or "20:00").strip(), "%H:%M").time()
+                normal_windows.append((st, et))
             except ValueError:
-                windows.append((datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("17:00", "%H:%M").time()))
-    else:
-        windows = [(datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("17:00", "%H:%M").time())]
+                normal_windows.append((datetime.strptime("09:00", "%H:%M").time(), datetime.strptime("20:00", "%H:%M").time()))
 
     lunch_start = datetime.strptime("13:00", "%H:%M").time()
     lunch_end = datetime.strptime("14:00", "%H:%M").time()
@@ -794,26 +831,49 @@ def doctor_slots(doctor_id):
     for s in all_slots:
         slot_time = datetime.strptime(s, "%I:%M %p").time()
         slot_dt = datetime.combine(target, slot_time)
-        in_window = any(start_t <= slot_time < end_t for (start_t, end_t) in windows)
-        is_lunch = lunch_start <= slot_time < lunch_end
-        is_past_time = target == now_local.date() and slot_dt <= now_local
+        
+        in_normal = False
+        for st, et in normal_windows:
+            # We use <= et to include the last slot that starts at et.
+            if st <= et:
+                if st <= slot_time <= et:
+                    in_normal = True
+            else:
+                # Overnight shift
+                if et == mid_time:
+                    if slot_time >= st or slot_time == mid_time:
+                        in_normal = True
+                else:
+                    if slot_time >= st or slot_time <= et:
+                        in_normal = True
 
-        if is_leave:
-            reason = "doctor_off"
-        elif not in_window:
+
+        # Determine availability reason
+        reason = None
+        
+        # Rule: Standard OPD shift check
+        if not in_normal:
             reason = "outside_schedule"
-        elif is_lunch:
+        
+        # Rule: Clinical Lunch Break
+        elif lunch_start <= slot_time < lunch_end:
             reason = "lunch_break"
-        elif is_past_time:
+            
+        # Rule: Prevent booking past times for today
+        elif target == now_local.date() and slot_dt <= now_local:
             reason = "past_time"
+            
+        # Rule: Global daily limit
         elif daily_limit_reached:
             reason = "daily_limit"
+            
+        # Rule: Slot already booked by this doctor
         elif s in doctor_booked:
             reason = "doctor_taken"
+            
+        # Rule: Current patient already has a booking at this time
         elif s in patient_booked:
             reason = "your_appointment"
-        else:
-            reason = None
 
         result.append({
             "slot":      s,
@@ -991,6 +1051,8 @@ def get_notifications():
     })
 
 
+
+
 @dashboard_bp.route("/api/profile/email", methods=["PUT"])
 def update_email():
     """
@@ -1017,6 +1079,8 @@ def update_email():
         "status": "success",
         "message": "Email updated successfully"
     })
+
+
 
 
 

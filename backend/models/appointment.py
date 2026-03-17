@@ -9,6 +9,7 @@ class AppointmentStatus:
     NOT_ATTENDED = "not_attended"
     NOT_VISITED = "not_visited"
     NOT_VISITED_CANCELLED = "not_visited_cancelled"
+    VISITED = "visited"
 
 
 class Appointment(db.Model):
@@ -24,6 +25,7 @@ class Appointment(db.Model):
 
     status = db.Column(db.String(50), nullable=False, default=AppointmentStatus.BOOKED)
     mail_sent = db.Column(db.Boolean, default=False)
+    missed_mail_sent = db.Column(db.Boolean, default=False)
     remark = db.Column(db.String(255), nullable=True) # Successfully sent or failed
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -41,23 +43,23 @@ class Appointment(db.Model):
         dt = self.appointment_datetime
         status = self.status
 
+        # 1. Terminal statuses stay as they are
         if not dt or status in {AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED, AppointmentStatus.NOT_VISITED_CANCELLED}:
             return status
 
-        # If it's already updated by the background task, return that
+        elapsed = now - dt
+
+        # 2. If it's more than 24 hours past the appointment, it's auto-cancelled
+        if elapsed >= timedelta(hours=24):
+            return AppointmentStatus.CANCELLED
+
+        # 3. If it's already updated by the background task, return that (unless 24h passed above)
         if status in {AppointmentStatus.NOT_ATTENDED, AppointmentStatus.NOT_VISITED}:
             return status
 
-        # Derive if still marked as 'booked'
+        # 4. If it's still marked as 'booked'
         if dt >= now:
             return AppointmentStatus.BOOKED
 
-        # Has passed
-        if dt.date() == now.date():
-            return AppointmentStatus.NOT_ATTENDED
-        
-        elapsed = now - dt
-        if elapsed >= timedelta(days=2):
-            return AppointmentStatus.NOT_VISITED_CANCELLED
-        
-        return AppointmentStatus.NOT_VISITED
+        # 5. It's in the past but less than 24 hours
+        return AppointmentStatus.NOT_ATTENDED

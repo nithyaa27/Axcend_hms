@@ -26,8 +26,13 @@
 
       
       <div class="mb-1">
-          <label class="form-label fw-semibold">Password</label>
-        <input v-model="password" type="password" class="form-control mb-1 input-soft border" placeholder="Password" required />
+        <label class="form-label fw-semibold">Password</label>
+        <div class="input-group-custom">
+          <input v-model="password" :type="showPassword ? 'text' : 'password'" class="form-control mb-1 input-soft border" placeholder="Password" required />
+          <button type="button" class="eye-btn" @click="showPassword = !showPassword">
+            <i class="bi" :class="showPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
+          </button>
+        </div>
       </div>
 
       <div class="mb-1">
@@ -81,7 +86,8 @@ export default {
       gender: "",
       password: "",
       ageError: "",
-      error: ""
+      error: "",
+      showPassword: false
     }
   },
   methods: {
@@ -136,6 +142,34 @@ export default {
 input:-webkit-autofill {
   -webkit-box-shadow: 0 0 0 1000px #eeefef inset !important;
   -webkit-text-fill-color: #000 !important;
+}
+
+.input-group-custom {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-group-custom .form-control {
+  width: 100%;
+  padding-right: 40px;
+}
+
+.eye-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  z-index: 10;
 }
 .logo-icon-container {
   width: 50px;

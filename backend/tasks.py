@@ -92,31 +92,61 @@ def sync_appointment_statuses():
     
     with app.app_context():
         now = datetime.now()
-        # Find all booked appointments that have already passed
-        expired_apts = Appointment.query.filter(
+        # 1. Handle Missed Appointments (10 mins after slot)
+        # Find BOOKED appointments that passed > 10 mins ago
+        # Note: If status is VISITED, they have arrived, so we don't send missed mail.
+        ten_mins_ago = now - timedelta(minutes=10)
+        missed_apts = Appointment.query.filter(
             Appointment.status == AppointmentStatus.BOOKED,
-            Appointment.appointment_datetime < now
+            Appointment.appointment_datetime <= ten_mins_ago
         ).all()
-        
-        if not expired_apts:
-            return
-            
-        print(f"[INFO] Syncing {len(expired_apts)} expired appointments statuses.")
-        
-        for apt in expired_apts:
-            dt = apt.appointment_datetime
-            if dt.date() == now.date():
-                apt.status = AppointmentStatus.NOT_ATTENDED
-            else:
-                elapsed = now - dt
-                if elapsed >= timedelta(days=2):
-                    apt.status = AppointmentStatus.NOT_VISITED_CANCELLED
-                else:
-                    apt.status = AppointmentStatus.NOT_VISITED
+
+        for apt in missed_apts:
+            # Change status to NOT_ATTENDED so it's picked up by auto-cancel later
+            # and won't be picked up by this loop again.
+            apt.status = AppointmentStatus.NOT_ATTENDED
+            if not apt.missed_mail_sent:
+                patient = apt.patient
+                doctor = apt.doctor
+                if patient and patient.email:
+                    time_str = apt.appointment_datetime.strftime('%I:%M %p')
+                    subject = "Missed Appointment Notification"
+                    body = f"""
+Hello {patient.name},
+
+You missed your scheduled appointment with Dr. {doctor.name if doctor else 'your doctor'} at {time_str}.
+
+We missed you today! Please visit the dashboard to reschedule your appointment at your earliest convenience. 
+Note: If you do not reschedule within 24 hours, the appointment will be cancelled.
+
+If you have already visited or rescheduled, please ignore this message.
+
+Thank you,
+HMS Team
+"""
+                    try:
+                        send_email(patient.email, subject, body)
+                        apt.missed_mail_sent = True
+                    except Exception as e:
+                        print(f"[ERROR] Failed to send missed email for appt {apt.id}: {e}")
+
+        # 2. Handle Auto-Cancellation (24 hours after missed)
+        # Find NOT_ATTENDED appointments that passed > 24 hours ago
+        one_day_ago = now - timedelta(hours=24)
+        to_cancel_apts = Appointment.query.filter(
+            Appointment.status == AppointmentStatus.NOT_ATTENDED,
+            Appointment.appointment_datetime <= one_day_ago
+        ).all()
+
+        if to_cancel_apts:
+            print(f"[INFO] Auto-cancelling {len(to_cancel_apts)} missed appointments.")
+            for apt in to_cancel_apts:
+                apt.status = AppointmentStatus.CANCELLED
+                apt.remark = "Auto-cancelled: No reschedule within 24 hours after missing"
         
         try:
             db.session.commit()
-            print(f"[INFO] Successfully synced {len(expired_apts)} statuses.")
+            print(f"[INFO] Successfully synced appointment statuses.")
         except Exception as e:
             db.session.rollback()
             print(f"[ERROR] Failed to sync appointment statuses: {e}")

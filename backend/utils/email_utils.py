@@ -30,3 +30,4 @@ def send_doctor_password_email(email, token, frontend_base=""):
     thread = threading.Thread(target=_send_email_sync, args=(msg,))
     thread.start()
 
+

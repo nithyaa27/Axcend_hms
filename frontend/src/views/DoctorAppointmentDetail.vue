@@ -70,11 +70,18 @@
                 <strong>{{ doctorDisplayName }}</strong>
               </div>
             </div>
-            <div class="info-row">
+            <div class="info-row status-row">
               <div>
                 <span>Status</span>
-                <span class="status-badge">{{ appointment.status }}</span>
+                <span class="status-badge" :class="appointment.status">{{ appointment.status }}</span>
               </div>
+              <button 
+                v-if="appointment.status === 'booked'" 
+                class="visited-btn" 
+                @click="markVisited"
+              >
+                <i class="bi bi-person-check"></i> Mark as Visited
+              </button>
             </div>
           </div>
         </article>
@@ -279,6 +286,17 @@ export default {
         this.saving = false
       }
     },
+    async markVisited() {
+      if (!this.doctorId || !this.appointmentId) return
+      try {
+        await api.patch(`/api/doctor/${this.doctorId}/appointments/${this.appointmentId}/status`, {
+          status: 'visited'
+        })
+        await this.loadAppointment()
+      } catch (err) {
+        console.error("Failed to mark visited:", err)
+      }
+    },
   },
 }
 </script>
@@ -418,6 +436,34 @@ export default {
   padding: 4px 10px;
   margin-top: 8px;
   text-transform: lowercase;
+}
+
+.status-badge.completed { background: #dcfce7; color: #16a34a; }
+.status-badge.visited { background: #e0f2fe; color: #0369a1; }
+.status-badge.cancelled { background: #fee2e2; color: #dc2626; }
+
+.status-row {
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.visited-btn {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  color: #0369a1;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.visited-btn:hover {
+  background: #e0f2fe;
 }
 
 .treatment-card {

@@ -18,6 +18,18 @@
         <p>Welcome back, {{ doctorDisplayName }}</p>
       </header>
 
+      <section class="panel availability-section">
+        <div class="panel-head">
+          <div class="title-with-icon">
+            <i class="bi bi-calendar2-check"></i>
+            <h2>Manage Availability</h2>
+          </div>
+        </div>
+        <div class="availability-info">
+          <p>Manage your day-wise availability below in your 7-day schedule.</p>
+        </div>
+      </section>
+
       <section class="stats-grid">
         <article class="stat-card">
           <div>
@@ -64,27 +76,38 @@
               v-for="day in next7Days"
               :key="day.date"
               class="day-head"
-              :class="{ today: day.isReference }"
+              :class="{ today: day.isReference, 'day-off': !day.isAvailable }"
             >
               <div class="weekday">{{ day.weekday }}</div>
               <div class="day-number">{{ day.day }}</div>
+              <button 
+                type="button" 
+                class="btn-day-toggle" 
+                :class="day.isAvailable ? 'on' : 'off'"
+                @click="toggleDayAvailability(day)"
+              >
+                {{ day.isAvailable ? 'Available' : 'Day Off' }}
+              </button>
             </div>
           </div>
 
           <div v-for="hour in timeSlots" :key="hour" class="schedule-row">
             <div class="time-slot">{{ formatHour(hour) }}</div>
-            <div v-for="day in next7Days" :key="`${day.date}-${hour}`" class="calendar-cell">
-              <button
-                v-for="appointment in getAppointments(day.date, hour)"
-                :key="appointment.id"
-                type="button"
-                class="appt-card"
-                :class="{ completed: appointment.status === 'completed' }"
-                @click="openAppointment(appointment)"
-              >
-                <div class="appt-name">{{ truncateName(appointment.patient_name) }}</div>
-                <div class="appt-time">{{ appointment.time }}</div>
-              </button>
+            <div v-for="day in next7Days" :key="`${day.date}-${hour}`" class="calendar-cell" :class="{ 'cell-off': !day.isAvailable }">
+              <template v-if="day.isAvailable">
+                <button
+                  v-for="appointment in getAppointments(day.date, hour)"
+                  :key="appointment.id"
+                  type="button"
+                  class="appt-card"
+                  :class="{ completed: appointment.status === 'completed' }"
+                  @click="openAppointment(appointment)"
+                >
+                  <div class="appt-name">{{ truncateName(appointment.patient_name) }}</div>
+                  <div class="appt-time">{{ appointment.time }}</div>
+                </button>
+              </template>
+              <div v-else class="off-label">OFF</div>
             </div>
           </div>
         </div>
@@ -111,9 +134,14 @@
                 <td>{{ appointment.patient_name }}</td>
                 <td><span class="status-badge" :class="appointment.status">{{ appointment.status }}</span></td>
                 <td>
-                  <button type="button" class="table-link" @click="openAppointment(appointment)">
-                    View Details <i class="bi bi-arrow-right"></i>
-                  </button>
+                  <div class="action-btns">
+                    <button v-if="appointment.status === 'booked'" type="button" class="btn-visited" @click="markVisited(appointment)">
+                      <i class="bi bi-person-check"></i>
+                    </button>
+                    <button type="button" class="table-link" @click="openAppointment(appointment)">
+                      View Details <i class="bi bi-arrow-right"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -144,9 +172,14 @@
                 <td>{{ appointment.patient_name }}</td>
                 <td><span class="status-badge" :class="appointment.status">{{ appointment.status }}</span></td>
                 <td>
-                  <button type="button" class="table-link" @click="openAppointment(appointment)">
-                    View Details <i class="bi bi-arrow-right"></i>
-                  </button>
+                  <div class="action-btns">
+                    <button v-if="appointment.status === 'booked'" type="button" class="btn-visited" @click="markVisited(appointment)">
+                      <i class="bi bi-person-check"></i>
+                    </button>
+                    <button type="button" class="table-link" @click="openAppointment(appointment)">
+                      View Details <i class="bi bi-arrow-right"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -208,6 +241,7 @@ export default {
       referenceDate: "",
       timeSlots: [9, 10, 11, 12, 14, 15, 16, 17],
       showProfileModal: false,
+      availabilities: [],
     }
   },
   computed: {
@@ -236,11 +270,14 @@ export default {
       return Array.from({ length: 7 }, (_, index) => {
         const current = new Date(this.baseDate)
         current.setDate(this.baseDate.getDate() + index)
+        const dateKey = this.toDateKey(current)
+        const av = this.availabilities.find(a => a.date === dateKey)
         return {
-          date: this.toDateKey(current),
+          date: dateKey,
           weekday: current.toLocaleDateString("en-US", { weekday: "short" }),
           day: current.getDate(),
           isReference: index === 0,
+          isAvailable: av ? av.is_available : true
         }
       })
     },
@@ -334,8 +371,37 @@ export default {
         this.stats = payload.stats || {}
         this.schedule = payload.schedule || []
         this.referenceDate = payload.reference_date || this.toDateKey(new Date())
+        this.availabilities = payload.availability || []
+
       } catch (error) {
         console.error("Failed to load doctor dashboard:", error)
+      }
+    },
+    async toggleDayAvailability(day) {
+      if (!this.doctorId) return
+      const newVal = !day.isAvailable
+      try {
+        await api.post(`/api/doctor/${this.doctorId}/availability`, {
+          dates: { [day.date]: newVal }
+        })
+        const existing = this.availabilities.find(a => a.date === day.date)
+        if (existing) {
+          existing.is_available = newVal
+        } else {
+          this.availabilities.push({ date: day.date, is_available: newVal })
+        }
+      } catch (err) {
+        console.error("Failed to update availability:", err)
+      }
+    },
+    async markVisited(appointment) {
+      try {
+        await api.patch(`/api/doctor/${this.doctorId}/appointments/${appointment.id}/status`, {
+          status: 'visited'
+        })
+        appointment.status = 'visited'
+      } catch (err) {
+        console.error("Failed to mark visited:", err)
       }
     },
   },
@@ -361,6 +427,34 @@ export default {
   margin: 8px 0 0;
   font-size: 16px;
   color: #6b7280;
+}
+
+.availability-section {
+  border-left: 4px solid var(--blue);
+}
+
+.title-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.title-with-icon i {
+  font-size: 20px;
+  color: var(--blue);
+}
+
+.availability-info {
+  font-size: 14px;
+  color: #6b7280;
+  line-height: 1.5;
+  margin-top: -6px;
+}
+
+
+.toggle-switch:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .stats-grid {
@@ -498,6 +592,41 @@ export default {
   color: #111827;
 }
 
+.btn-day-toggle {
+  margin-top: 8px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-day-toggle.on { color: #16a34a; border-color: #bbf7d0; background: #f0fdf4; }
+.btn-day-toggle.off { color: #dc2626; border-color: #fecaca; background: #fef2f2; }
+
+.day-head.day-off {
+  background: #f9fafb;
+  opacity: 0.8;
+}
+
+.calendar-cell.cell-off {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.off-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #9ca3af;
+  letter-spacing: 0.05em;
+}
+
 .calendar-cell {
   min-height: 82px;
   border: 1px solid #e5e7eb;
@@ -571,10 +700,35 @@ th {
   text-transform: lowercase;
 }
 .status-badge.completed { background: #dcfce7; color: #16a34a; }
+.status-badge.visited { background: #e0f2fe; color: #0369a1; }
 .status-badge.cancelled { background: #fee2e2; color: #dc2626; }
 .status-badge.not_attended { background: #fef3c7; color: #d97706; }
 .status-badge.not_visited { background: #ffedd5; color: #ea580c; }
 .status-badge.not_visited_cancelled { background: #f3f4f6; color: #4b5563; }
+
+.action-btns {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-visited {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  color: #0369a1;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-visited:hover {
+  background: #e0f2fe;
+}
 
 .table-link {
   border: 0;
