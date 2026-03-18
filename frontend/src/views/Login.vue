@@ -138,6 +138,19 @@ export default {
   border: none;
   background: transparent;
   cursor: pointer;
+  color: #6b7280;
+  font-size: 18px;
+  padding: 4px;
+  z-index: 10;
+}
+
+/* Hide browser's native password reveal icon (Edge / IE / Chrome) */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear,
+input[type="password"]::-webkit-contacts-auto-fill-button,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  display: none !important;
+  pointer-events: none;
 }
 .form-control:focus {
   border-color: #9ca3af;
