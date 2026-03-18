@@ -9,7 +9,6 @@ class AppointmentStatus:
     NOT_ATTENDED = "not_attended"
     NOT_VISITED = "not_visited"
     NOT_VISITED_CANCELLED = "not_visited_cancelled"
-    VISITED = "visited"
 
 
 class Appointment(db.Model):
@@ -43,23 +42,21 @@ class Appointment(db.Model):
         dt = self.appointment_datetime
         status = self.status
 
-        # 1. Terminal statuses stay as they are
-        if not dt or status in {AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED, AppointmentStatus.NOT_VISITED_CANCELLED}:
+        # 1. If it's already a 'final' or 'processed' status, return it directly.
+        # This keeps 'visited', 'completed', 'cancelled', 'not_attended', etc. stable.
+        if not dt or status != AppointmentStatus.BOOKED:
             return status
 
+        # 2. Logic for currently 'booked' appointments
         elapsed = now - dt
 
-        # 2. If it's more than 24 hours past the appointment, it's auto-cancelled
+        # If it's more than 24 hours past the appointment, it's auto-cancelled
         if elapsed >= timedelta(hours=24):
             return AppointmentStatus.CANCELLED
 
-        # 3. If it's already updated by the background task, return that (unless 24h passed above)
-        if status in {AppointmentStatus.NOT_ATTENDED, AppointmentStatus.NOT_VISITED}:
-            return status
+        # If it's in the past but less than 24 hours, it's 'not_attended'
+        if dt < now:
+            return AppointmentStatus.NOT_ATTENDED
 
-        # 4. If it's still marked as 'booked'
-        if dt >= now:
-            return AppointmentStatus.BOOKED
-
-        # 5. It's in the past but less than 24 hours
-        return AppointmentStatus.NOT_ATTENDED
+        # Otherwise, it's still 'booked'
+        return AppointmentStatus.BOOKED

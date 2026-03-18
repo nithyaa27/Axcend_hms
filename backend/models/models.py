@@ -46,12 +46,11 @@ class Doctor(db.Model):
     )
 
     password_hash = db.Column(db.String(255))
-    password_set = db.Column(db.Boolean, default=False)
-    set_password_token = db.Column(db.String(255), nullable=True)
+    set_password_status = db.Column(db.String(50), default="password not set")
 
-    def set_password(self, password):
+    def update_password(self, password):
         self.password_hash = generate_password_hash(password)
-        self.password_set = True
+        self.set_password_status = "password set successfully"
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)

@@ -135,9 +135,6 @@
                 <td><span class="status-badge" :class="appointment.status">{{ appointment.status }}</span></td>
                 <td>
                   <div class="action-btns">
-                    <button v-if="appointment.status === 'booked'" type="button" class="btn-visited" @click="markVisited(appointment)">
-                      <i class="bi bi-person-check"></i>
-                    </button>
                     <button type="button" class="table-link" @click="openAppointment(appointment)">
                       View Details <i class="bi bi-arrow-right"></i>
                     </button>
@@ -173,9 +170,6 @@
                 <td><span class="status-badge" :class="appointment.status">{{ appointment.status }}</span></td>
                 <td>
                   <div class="action-btns">
-                    <button v-if="appointment.status === 'booked'" type="button" class="btn-visited" @click="markVisited(appointment)">
-                      <i class="bi bi-person-check"></i>
-                    </button>
                     <button type="button" class="table-link" @click="openAppointment(appointment)">
                       View Details <i class="bi bi-arrow-right"></i>
                     </button>
@@ -392,16 +386,6 @@ export default {
         }
       } catch (err) {
         console.error("Failed to update availability:", err)
-      }
-    },
-    async markVisited(appointment) {
-      try {
-        await api.patch(`/api/doctor/${this.doctorId}/appointments/${appointment.id}/status`, {
-          status: 'visited'
-        })
-        appointment.status = 'visited'
-      } catch (err) {
-        console.error("Failed to mark visited:", err)
       }
     },
   },
@@ -699,35 +683,15 @@ th {
   font-size: 13px;
   text-transform: lowercase;
 }
+.status-badge.booked { background: #dbeafe; color: #2563eb; }
 .status-badge.completed { background: #dcfce7; color: #16a34a; }
-.status-badge.visited { background: #e0f2fe; color: #0369a1; }
 .status-badge.cancelled { background: #fee2e2; color: #dc2626; }
 .status-badge.not_attended { background: #fef3c7; color: #d97706; }
-.status-badge.not_visited { background: #ffedd5; color: #ea580c; }
-.status-badge.not_visited_cancelled { background: #f3f4f6; color: #4b5563; }
 
 .action-btns {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.btn-visited {
-  background: #f0f9ff;
-  border: 1px solid #bae6fd;
-  color: #0369a1;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  font-size: 16px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-visited:hover {
-  background: #e0f2fe;
 }
 
 .table-link {

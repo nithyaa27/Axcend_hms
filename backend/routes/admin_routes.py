@@ -174,7 +174,7 @@ def get_admin_doctors():
             "status": doc.status,
             "department_name": doc.department.name if doc.department else "No Department",
             "department_id": doc.department_id,
-            "password_set": doc.password_set,
+            "set_password_status": doc.set_password_status,
         }
         for doc in doctors
     ])

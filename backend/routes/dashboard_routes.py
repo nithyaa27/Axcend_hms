@@ -83,11 +83,6 @@ def _derive_appointment_state(apt, now=None):
         base["display_label"] = "Cancelled"
         return base
 
-    if status == AppointmentStatus.VISITED:
-        base["display_status"] = "visited"
-        base["display_label"] = "Patient Arrived"
-        base["status_note"] = "You have checked in for this appointment."
-        return base
 
     # For booked appointments, derive missed/not-visited states based on elapsed time.
     if dt >= now:
@@ -106,12 +101,11 @@ def _derive_appointment_state(apt, now=None):
 
     elapsed = now - dt
     if elapsed >= timedelta(hours=24):
-        base["display_status"] = "not_visited_cancelled"
+        base["display_status"] = "cancelled"
         base["display_label"] = "Cancelled"
-        base["status_note"] = "Appointment not visited for 24 hours. Marked as cancelled."
     else:
-        base["display_status"] = "not_visited"
-        base["display_label"] = "Not Visited"
+        base["display_status"] = "not_attended"
+        base["display_label"] = "Not Attended"
         base["reschedulable"] = True
         base["status_note"] = "Appointment was missed. You can still reschedule within 24 hours."
     return base
@@ -418,7 +412,6 @@ def get_dashboard_data():
     Fetches the patient's dashboard summary, including visit statistics and
     basic profile information.
     """
-    now  = datetime.now()
     now  = datetime.now()
     apts = Appointment.query.filter_by(patient_id=g.user.id).all()
 
@@ -1072,8 +1065,14 @@ def update_email():
     if existing:
         return jsonify({"status": "error", "message": "This email is already registered"}), 409
 
-    g.user.email = new_email
-    db.session.commit()
+    try:
+        g.user.email = new_email
+        db.session.commit()
+        print(f"[SUCCESS] Updated email for patient {g.user.id} to {new_email}")
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to update email: {str(e)}")
+        return jsonify({"status": "error", "message": "Database update failed. Please try again."}), 500
 
     return jsonify({
         "status": "success",

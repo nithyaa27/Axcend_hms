@@ -478,8 +478,8 @@ def update_appointment_status(doctor_id, appointment_id):
 
     data = request.get_json() or {}
     status = (data.get("status") or "").strip().lower()
-    if status not in {AppointmentStatus.BOOKED, AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED, AppointmentStatus.VISITED}:
-        return jsonify({"error": "status must be booked/completed/cancelled/visited"}), 400
+    if status not in {AppointmentStatus.BOOKED, AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED}:
+        return jsonify({"error": "status must be booked/completed/cancelled"}), 400
 
     appointment = Appointment.query.filter_by(id=appointment_id, doctor_id=doctor_id).first()
     if not appointment:

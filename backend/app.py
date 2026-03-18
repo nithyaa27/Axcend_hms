@@ -22,20 +22,20 @@ from utils.token_utils import create_jwt_token, decode_jwt_token, get_serializer
 
 app = Flask(__name__)
 
-# Production-safe defaults with env overrides.
+# Database Configuration
+# We use a purely local SQLite database stored in the 'instance' folder.
 basedir = os.path.abspath(os.path.dirname(__file__))
 instance_dir = os.path.join(basedir, "instance")
 if not os.path.exists(instance_dir):
     os.makedirs(instance_dir, exist_ok=True)
+
 db_path = os.path.join(instance_dir, "hms.db")
+db_uri = f"sqlite:///{db_path}"
 
-db_uri = os.getenv("HMS_DATABASE_URI", "")
-if not db_uri or db_uri == "sqlite:///hms.db":
-    db_uri = f"sqlite:///{db_path}"
-
-app.config["SECRET_KEY"] = os.getenv("HMS_SECRET_KEY", "your-secret-key-change-in-production")
 app.config["SQLALCHEMY_DATABASE_URI"] = db_uri
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config['SQLALCHEMY_ECHO'] = False
+app.config["SECRET_KEY"] = os.getenv("HMS_SECRET_KEY", "dev-secret-key")
 
 # Extensions
 db.init_app(app)
@@ -176,11 +176,19 @@ def _validate_email(email):
 
 def _next_patient_uid():
     """
-    Generates a unique identifier for a new patient (e.g., P0001, P0002).
+    Generates a unique patient UID (e.g., P0001, P0002).
+    Always uses MAX(patient_uid) + 1 so it is safe:
+    - On a fresh / empty database  → starts at P0001
+    - After records are deleted    → never reuses an old UID
     """
     from models.patient import Patient
-    count = Patient.query.count() + 1
-    return f"P{count:04d}"
+    from sqlalchemy import func
+    max_uid = db.session.query(func.max(Patient.patient_uid)).scalar()
+    if max_uid and len(max_uid) > 1 and max_uid[1:].isdigit():
+        next_num = int(max_uid[1:]) + 1
+    else:
+        next_num = 1          # fresh / empty database
+    return f"P{next_num:04d}"
 
 def _ensure_default_admin():
     """
@@ -383,7 +391,7 @@ def reset_password():
 
     if hasattr(user, 'password_hash'):
         user.password_hash = generate_password_hash(password)
-        user.password_set = True
+        user.set_password_status = "password set successfully"
     else:
         user.password = generate_password_hash(password)
 
@@ -425,7 +433,7 @@ def doctor_set_password():
             "message": f"Doctor with ID {doctor_id} not found. The account may have been deleted or re-created. Please ask Admin to resend the link."
         }), 404
 
-    doctor.set_password(password)
+    doctor.update_password(password)
     db.session.commit()
 
     return jsonify({"status": "success", "message": "Password set successfully"})
@@ -471,7 +479,7 @@ def login():
 
     password_ok = False
     if is_doctor:
-        if not getattr(user, 'password_set', False):
+        if getattr(user, 'set_password_status', "") != "password set successfully":
             return jsonify({'status': 'error', 'message': 'Please set your password first'}), 400
         password_ok = user.check_password(password)
     else:
@@ -540,6 +548,27 @@ with app.app_context():
             conn.commit()
     except Exception:
         pass
+    try:
+        with db.engine.connect() as conn:
+            # Check for existing column names if we previously used set_password or password_set
+            try:
+                conn.execute(text("ALTER TABLE doctors ADD COLUMN set_password_status VARCHAR(50) DEFAULT 'password not set'"))
+            except Exception: pass
+            
+            # Migration: if set_password exists, copy its data then drop it if possible (or just keep it)
+            try:
+                conn.execute(text("UPDATE doctors SET set_password_status = set_password WHERE set_password IS NOT NULL"))
+            except Exception: pass
+            
+            # Legacy cleanup: if anyone was using the old boolean column
+            try:
+                conn.execute(text("UPDATE doctors SET set_password_status = 'password set successfully' WHERE password_set = 1"))
+            except Exception: pass
+            
+            conn.commit()
+    except Exception:
+        pass
+
     _ensure_default_admin()
 
 if __name__ == "__main__":

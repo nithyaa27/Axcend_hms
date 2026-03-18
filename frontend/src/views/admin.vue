@@ -237,8 +237,9 @@
                   <span class="status-pill" :class="doc.status || 'active'">{{ doc.status || 'active' }}</span>
                 </td>
                 <td class="text-center">
-                  <span v-if="doc.password_set" class="text-green">Yes</span>
-                  <span v-else class="text-red">No</span>
+                  <span :class="doc.set_password_status === 'password set successfully' ? 'text-green' : 'text-red'">
+                    {{ doc.set_password_status || 'password not set' }}
+                  </span>
                 </td>
                 <td class="actions-cell">
                   <button class="text-blue" @click="openDoctorModal(doc)">Edit</button>
@@ -428,7 +429,7 @@
         <div class="modal-footer flex-between">
           <div>
             <button 
-              v-if="doctorForm.id && !doctorForm.password_set" 
+              v-if="doctorForm.id && doctorForm.set_password_status !== 'password set successfully'" 
               class="btn-warn"
               @click="resendDoctorPassword(doctorForm.id)"
             >
@@ -519,7 +520,7 @@ export default {
         phone: "",
         department_id: "",
         status: "active",
-        password_set: false
+        set_password_status: "password not set"
       },
       editPatientForm: { id: null, name: "", email: "", phone: "", age: "", gender: "" },
       showPatientEditModal: false,
@@ -620,7 +621,7 @@ export default {
             phone: doc.phone || "",
             department_id: doc.department_id || "",
             status: doc.status || "active",
-            password_set: doc.password_set || false
+            set_password_status: doc.set_password_status || "password not set"
           }
         : {
             id: null,
@@ -630,14 +631,14 @@ export default {
             phone: "",
             department_id: "",
             status: "active",
-            password_set: false
+            set_password_status: "password not set"
           }
       this.showDoctorModal = true
     },
     async saveDoctor() {
       const payload = { ...this.doctorForm }
       delete payload.id
-      delete payload.password_set
+      delete payload.set_password_status
       if (!payload.name || !payload.email || !payload.phone || !payload.specialization || !payload.department_id) {
         alert("All fields are required"); return;
       }
@@ -971,7 +972,6 @@ color:white;
   font-weight: 500;
   text-transform: capitalize;
 }
-.status-pill.booked { background: #dbeafe; color: #2563eb; }
 .status-pill.completed { background: #dcfce7; color: #16a34a; }
 .status-pill.cancelled { background: #fee2e2; color: #dc2626; }
 .status-pill.not_attended { background: #fef3c7; color: #d97706; }
