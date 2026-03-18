@@ -429,6 +429,7 @@ app.register_blueprint(doctor_bp)
 
 # Create tables
 with app.app_context():
+    os.makedirs(app.instance_path, exist_ok=True)
     db.create_all()
     _ensure_default_admin()
 
