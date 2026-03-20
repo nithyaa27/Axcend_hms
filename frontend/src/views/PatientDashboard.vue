@@ -726,7 +726,12 @@ onMounted(() => {
             <div class="avatar" :class="avatarColor(a.doctor)">{{ (a.doctor || '?')[0] }}</div>
             <div class="apt-info">
               <div class="apt-name">{{ a.doctor || 'N/A' }}</div>
-              <div class="apt-meta">{{ a.date }} at {{ a.time }} · {{ a.specialty || '' }}</div>
+              <div class="apt-meta">
+                {{ a.date }} at {{ a.time }} · {{ a.specialty || '' }}
+                <span v-if="a.mail_sent" style="color:#059669;font-weight:600;display:inline-flex;align-items:center;margin-left:8px;font-size:11px;">
+                  <i class="bi bi-envelope-check" style="margin-right:3px;"></i> Mail Sent
+                </span>
+              </div>
             </div>
             <span class="apt-badge" :class="aptStatusClass(a)">{{ aptStatusLabel(a) }}</span>
             <div style="display:flex;gap:8px;align-items:center">
