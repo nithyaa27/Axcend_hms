@@ -27,38 +27,28 @@
         <form @submit.prevent="setPassword" class="form-body">
           <div class="field">
             <label class="field-label">New Password</label>
-            <div class="input-with-eye">
-              <input
-                :type="showPassword ? 'text' : 'password'"
-                placeholder="Enter your password (min. 6 characters)"
-                class="field-input"
-                v-model="password"
-                required
-                minlength="6"
-                :disabled="loading"
-              />
-              <button type="button" class="eye-btn" @click="showPassword = !showPassword">
-                <i class="bi" :class="showPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
-              </button>
-            </div>
+            <input
+              type="password"
+              placeholder="Enter your password (min. 6 characters)"
+              class="field-input"
+              v-model="password"
+              required
+              minlength="6"
+              :disabled="loading"
+            />
           </div>
 
           <div class="field">
             <label class="field-label">Confirm Password</label>
-            <div class="input-with-eye">
-              <input
-                :type="showConfirmPassword ? 'text' : 'password'"
-                placeholder="Re-enter your password"
-                class="field-input"
-                v-model="confirmPassword"
-                required
-                minlength="6"
-                :disabled="loading"
-              />
-              <button type="button" class="eye-btn" @click="showConfirmPassword = !showConfirmPassword">
-                <i class="bi" :class="showConfirmPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
-              </button>
-            </div>
+            <input
+              type="password"
+              placeholder="Re-enter your password"
+              class="field-input"
+              v-model="confirmPassword"
+              required
+              minlength="6"
+              :disabled="loading"
+            />
           </div>
 
           <p v-if="error" class="error-msg">{{ error }}</p>
@@ -85,9 +75,7 @@ export default {
       confirmPassword: "",
       error: "",
       loading: false,
-      success: false,
-      showPassword: false,
-      showConfirmPassword: false
+      success: false
     }
   },
   methods: {
@@ -261,36 +249,6 @@ export default {
 .field-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.input-with-eye {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.input-with-eye .field-input {
-  width: 100%;
-  padding-right: 46px;
-}
-
-.eye-btn {
-  position: absolute;
-  right: 12px;
-  background: none;
-  border: none;
-  color: #6b7280;
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  transition: color 0.2s;
-}
-
-.eye-btn:hover {
-  color: #2563eb;
 }
 
 .error-msg {

@@ -144,6 +144,17 @@
         </button>
         <div class="profile-avatar">{{ doctorInitial }}</div>
         <h3>{{ doctorDisplayName }}</h3>
+        <p>Doctor ID: {{ doctorId || "N/A" }}</p>
+        <div class="profile-grid">
+          <div class="profile-box">
+            <span>Email</span>
+            <strong>{{ doctorProfile.email || "N/A" }}</strong>
+          </div>
+          <div class="profile-box">
+            <span>Specialization</span>
+            <strong>{{ doctorProfile.specialization || "N/A" }}</strong>
+          </div>
+        </div>
       </div>
     </div>
   </DoctorShell>
@@ -159,6 +170,8 @@ export default {
     return {
       doctorProfile: {
         name: localStorage.getItem("name") || "Doctor",
+        email: "",
+        specialization: "",
       },
       appointment: null,
       patient: null,
@@ -420,8 +433,10 @@ export default {
   text-transform: lowercase;
 }
 
+.status-badge.booked { background: #dbeafe; color: #2563eb; }
 .status-badge.completed { background: #dcfce7; color: #16a34a; }
 .status-badge.cancelled { background: #fee2e2; color: #dc2626; }
+.status-badge.not_attended { background: #fef3c7; color: #d97706; }
 
 .treatment-card {
   padding: 20px 26px 24px;
@@ -547,10 +562,10 @@ export default {
 }
 
 .profile-modal {
-  width: min(420px, 92vw);
+  width: min(520px, 92vw);
   background: #ffffff;
-  border-radius: 18px;
-  padding: 22px;
+  border-radius: 22px;
+  padding: 24px;
   position: relative;
 }
 
@@ -579,6 +594,30 @@ export default {
 .profile-modal h3 {
   margin: 0;
   font-size: 22px;
+}
+
+.profile-modal p {
+  color: #6b7280;
+  margin-bottom: 20px;
+}
+
+.profile-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-box {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.profile-box span {
+  display: block;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-bottom: 4px;
+  text-transform: uppercase;
 }
 
 .id-banner {

@@ -47,6 +47,13 @@ class Doctor(db.Model):
 
     password_hash = db.Column(db.String(255))
     set_password_status = db.Column(db.String(50), default="password not set")
+    password_set = db.Column(db.Boolean, default=False)
+    set_password_token = db.Column(db.String(255), nullable=True)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+        self.password_set = True
+        self.set_password_status = "password set successfully"
 
     def update_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -152,3 +159,39 @@ class Prescription(db.Model):
 
     def __repr__(self):
         return f"<Prescription {self.id} patient={self.patient_id} doctor={self.doctor_id}>"
+
+
+class ReminderSettings(db.Model):
+    __tablename__ = "reminder_settings"
+
+    id = db.Column(db.Integer, primary_key=True, default=1)
+    daily_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    daily_time = db.Column(db.String(5), nullable=False, default="09:00")
+    monthly_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    monthly_day = db.Column(db.Integer, nullable=False, default=1)
+    monthly_time = db.Column(db.String(5), nullable=False, default="09:00")
+    last_daily_sent_on = db.Column(db.Date, nullable=True)
+    last_monthly_sent_period = db.Column(db.String(7), nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<ReminderSettings daily={self.daily_enabled} monthly={self.monthly_enabled}>"
+
+
+class PatientReminder(db.Model):
+    __tablename__ = "patient_reminders"
+
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=False, index=True)
+    reminder_type = db.Column(db.String(20), nullable=False)
+    title = db.Column(db.String(120), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    scheduled_for = db.Column(db.DateTime, nullable=False, index=True)
+    sent_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    related_appointment_id = db.Column(db.Integer, db.ForeignKey("appointments.id"), nullable=True)
+
+    patient = db.relationship("Patient", backref="reminder_items")
+    appointment = db.relationship("Appointment", backref="patient_reminders")
+
+    def __repr__(self):
+        return f"<PatientReminder patient={self.patient_id} type={self.reminder_type}>"

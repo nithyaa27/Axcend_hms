@@ -61,7 +61,7 @@ router.beforeEach((to) => {
     // Only redirect to dashboard if it's strictly a login/register type page, 
     // NOT a reset page.
     if (!to.path.startsWith('/reset/') && !to.path.startsWith('/doctor-set-password')) {
-       return target
+    return target
     }
     return true
   }

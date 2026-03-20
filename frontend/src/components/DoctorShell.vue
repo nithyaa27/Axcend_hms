@@ -17,7 +17,7 @@
         </router-link>
       </nav>
 
-      <div class="sidebar-footer">
+      <div class="sidebar-bottom">
         <div class="user-pill" @click="$emit('profile')">
           <div class="avatar">{{ initial }}</div>
           <div class="user-pill-info">
@@ -25,7 +25,7 @@
             <div class="user-pill-role">Doctor</div>
           </div>
         </div>
-        <button class="btn btn-ghost btn-sm logout-btn" style="width:100%;margin-top:10px;justify-content:center;" type="button" @click="doLogout">
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;justify-content:center;" type="button" @click="doLogout">
           <i class="bi bi-box-arrow-right"></i> Logout
         </button>
       </div>
@@ -194,13 +194,9 @@ export default {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: #f8fafc;
+  background: var(--bg, #f8fafc);
   border-radius: 12px;
   cursor: pointer;
-  transition: background 0.2s;
-  width: 100%;
-  border: none;
-  text-align: left;
 }
 .user-pill:hover {
   background: #f1f5f9;
@@ -266,10 +262,10 @@ export default {
   }
 }
 
-.sidebar-footer {
+.sidebar-bottom {
   margin-top: auto;
   padding: 16px 20px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border, #e2e8f0);
 }
 
 .btn {
@@ -287,20 +283,16 @@ export default {
 
 .btn-ghost {
   background: transparent;
-  color: var(--blue);
-  border: 1px solid var(--blue);
+  color: var(--blue, #2563eb);
+  border: 1px solid var(--blue, #2563eb);
 }
 
 .btn-ghost:hover {
-  background: var(--blue-lt);
+  background: var(--blue-lt, #eff6ff);
 }
 
 .btn-sm {
   padding: 5px 12px;
   font-size: 12px;
-}
-
-.logout-btn i {
-  font-size: 16px;
 }
 </style>

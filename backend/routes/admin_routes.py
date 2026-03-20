@@ -10,6 +10,7 @@ from utils.token_utils import generate_doctor_password_token
 from utils.email_utils import send_doctor_password_email
 from werkzeug.security import generate_password_hash, check_password_hash
 from utils.network_utils import get_actual_frontend_url
+from utils.reminder_utils import get_or_create_reminder_settings, serialize_reminder_settings
 
 # ==========================================
 # Admin Routes Blueprint
@@ -20,6 +21,19 @@ from utils.network_utils import get_actual_frontend_url
 admin_bp = Blueprint("admin_bp", __name__)
 
 
+def _parse_datetime(date_str, time_str):
+    if not date_str or not time_str:
+        return None
+
+    value = f"{date_str.strip()} {time_str.strip()}"
+    formats = ("%Y-%m-%d %H:%M", "%Y-%m-%d %I:%M %p")
+    for fmt in formats:
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return None
+
 
 @admin_bp.before_request
 def require_admin():
@@ -27,6 +41,9 @@ def require_admin():
     Verification middleware: Ensures that any request hitting this blueprint
     is authenticated and belongs to an 'admin' user.
     """
+    if request.method == "OPTIONS":
+        return None
+
     if not g.user:
         msg = getattr(g, "auth_error", "Authentication required")
         return jsonify({"message": msg}), 401
@@ -38,17 +55,78 @@ def require_admin():
     return None
 
 
+def _email_used_anywhere(email, exclude_doctor_id=None, exclude_patient_id=None):
+    doctor_query = Doctor.query.filter(db.func.lower(Doctor.email) == email.lower())
+    if exclude_doctor_id is not None:
+        doctor_query = doctor_query.filter(Doctor.id != exclude_doctor_id)
+
+    patient_query = Patient.query.filter(db.func.lower(Patient.email) == email.lower())
+    if exclude_patient_id is not None:
+        patient_query = patient_query.filter(Patient.id != exclude_patient_id)
+
+    return doctor_query.first() is not None or patient_query.first() is not None
+
+
 @admin_bp.route("/api/admin/dashboard", methods=["GET"])
 def admin_dashboard():
     """
     Returns high-level statistics (totals) for the admin dashboard overview.
     """
-    
+    try:
+        return jsonify({
+            "status": "success",
+            "total_doctors": Doctor.query.count(),
+            "total_departments": Department.query.count(),
+            "total_patients": Patient.query.filter_by(role="patient").count(),
+            "total_appointments": Appointment.query.count(),
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": "Failed to fetch dashboard data"}), 500
+
+
+@admin_bp.route("/api/admin/reminder-settings", methods=["GET"])
+def get_admin_reminder_settings():
+    settings = get_or_create_reminder_settings()
+    return jsonify(serialize_reminder_settings(settings))
+
+
+@admin_bp.route("/api/admin/reminder-settings", methods=["PUT"])
+def update_admin_reminder_settings():
+    data = request.get_json() or {}
+    daily = data.get("daily") or {}
+    monthly = data.get("monthly") or {}
+
+    settings = get_or_create_reminder_settings()
+
+    daily_enabled = bool(daily.get("enabled", settings.daily_enabled))
+    daily_time = str(daily.get("time") or settings.daily_time or "09:00").strip()
+    if daily_enabled and not re.match(r"^\d{2}:\d{2}$", daily_time):
+        return jsonify({"error": "Daily reminder time must be in HH:MM format"}), 400
+
+    monthly_enabled = bool(monthly.get("enabled", settings.monthly_enabled))
+    monthly_day = monthly.get("day", settings.monthly_day)
+    monthly_time = str(monthly.get("time") or settings.monthly_time or "09:00").strip()
+    try:
+        monthly_day = int(monthly_day)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Monthly reminder day must be a number"}), 400
+
+    if monthly_day < 1 or monthly_day > 31:
+        return jsonify({"error": "Monthly reminder day must be between 1 and 31"}), 400
+
+    if monthly_enabled and not re.match(r"^\d{2}:\d{2}$", monthly_time):
+        return jsonify({"error": "Monthly reminder time must be in HH:MM format"}), 400
+
+    settings.daily_enabled = daily_enabled
+    settings.daily_time = daily_time
+    settings.monthly_enabled = monthly_enabled
+    settings.monthly_day = monthly_day
+    settings.monthly_time = monthly_time
+    db.session.commit()
+
     return jsonify({
-        "total_doctors": Doctor.query.count(),
-        "total_departments": Department.query.count(),
-        "total_patients": Patient.query.filter_by(role="patient").count(),
-        "total_appointments": Appointment.query.count(),
+        "message": "Reminder settings saved successfully",
+        "settings": serialize_reminder_settings(settings),
     })
 
 
@@ -57,7 +135,6 @@ def get_departments():
     """
     Lists all hospital departments, including metadata like doctor count.
     """
-    departments = Department.query.order_by(Department.id.desc()).all()
     departments = Department.query.order_by(Department.id.desc()).all()
     return jsonify([
         {
@@ -77,7 +154,6 @@ def add_department():
     """
     Creates a new hospital department. Validates the name for duplicates and characters.
     """
-    data = request.get_json() or {}
     data = request.get_json() or {}
     name = (data.get("name") or "").strip()
     description = (data.get("description") or "").strip()
@@ -106,7 +182,6 @@ def update_department(department_id):
     """
     Updates details of an existing department.
     """
-    department = db.session.get(Department, department_id)
     department = db.session.get(Department, department_id)
     if not department:
         return jsonify({"error": "Department not found"}), 404
@@ -145,7 +220,6 @@ def delete_department(department_id):
     Prevents deletion if doctors are still assigned to the department.
     """
     department = db.session.get(Department, department_id)
-    department = db.session.get(Department, department_id)
     if not department:
         return jsonify({"error": "Department not found"}), 404
 
@@ -163,7 +237,6 @@ def get_admin_doctors():
     Returns a comprehensive list of all doctors for the admin view.
     """
     doctors = Doctor.query.order_by(Doctor.id.desc()).all()
-    doctors = Doctor.query.order_by(Doctor.id.desc()).all()
     return jsonify([
         {
             "id": doc.id,
@@ -175,6 +248,7 @@ def get_admin_doctors():
             "department_name": doc.department.name if doc.department else "No Department",
             "department_id": doc.department_id,
             "set_password_status": doc.set_password_status,
+            "password_set": doc.password_set,
         }
         for doc in doctors
     ])
@@ -186,7 +260,6 @@ def add_doctor():
     Onboards a new doctor. Validates all inputs and sends an automated
     email to the doctor to set their login password.
     """
-    data = request.get_json() or {}
     data = request.get_json() or {}
 
     name = (data.get("name") or "").strip()
@@ -209,14 +282,14 @@ def add_doctor():
     if not re.match(r"^\d{10}$", phone):
         return jsonify({"error": "Phone number must be exactly 10 digits"}), 400
 
-    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+    if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
         return jsonify({"error": "Invalid email format"}), 400
 
     department = db.session.get(Department, (department_id))
     if not department:
         return jsonify({"error": "Department not found"}), 404
 
-    email_exists = Doctor.query.filter(db.func.lower(Doctor.email) == email).first()
+    email_exists = _email_used_anywhere(email)
     if email_exists:
         return jsonify({"error": "Email already exists"}), 400
 
@@ -237,7 +310,7 @@ def add_doctor():
 
     token = generate_doctor_password_token(new_doc.id)
 
-    origin = request.headers.get("Origin", "")
+    origin = request.headers.get("Origin", "http://localhost:5173")
     frontend_base = get_actual_frontend_url(origin)
     send_doctor_password_email(new_doc.email, token, frontend_base)
 
@@ -249,7 +322,6 @@ def update_doctor(doctor_id):
     """
     Updates a doctor's profile information and assignment.
     """
-    data = request.get_json() or {}
     data = request.get_json() or {}
 
     if not all([
@@ -278,17 +350,14 @@ def update_doctor(doctor_id):
     if not re.match(r"^\d{10}$", phone):
         return jsonify({"error": "Phone number must be exactly 10 digits"}), 400
 
-    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+    if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
         return jsonify({"error": "Invalid email format"}), 400
 
     department = db.session.get(Department, (department_id))
     if not department:
         return jsonify({"error": "Department not found"}), 404
 
-    email_exists = Doctor.query.filter(
-        db.func.lower(Doctor.email) == email,
-        Doctor.id != doctor_id
-    ).first()
+    email_exists = _email_used_anywhere(email, exclude_doctor_id=doctor_id)
     if email_exists:
         return jsonify({"error": "Email already exists"}), 400
 
@@ -315,7 +384,6 @@ def delete_doctor(doctor_id):
     Removes a doctor record from the system.
     """
     doctor = db.session.get(Doctor, doctor_id)
-    doctor = db.session.get(Doctor, doctor_id)
     if not doctor:
         return jsonify({"error": "Doctor not found"}), 404
 
@@ -330,14 +398,12 @@ def resend_doctor_password(id):
     Triggers a fresh password setup email to the doctor.
     """
     doctor = Doctor.query.get(id)
-
-    doctor = Doctor.query.get(id)
     if not doctor:
         return jsonify({"error": "Doctor not found"}), 404
 
     token = generate_doctor_password_token(doctor.id)
 
-    origin = request.headers.get("Origin", "")
+    origin = request.headers.get("Origin", "http://localhost:5173")
     frontend_base = get_actual_frontend_url(origin)
     send_doctor_password_email(doctor.email, token, frontend_base)
 
@@ -363,7 +429,6 @@ def get_admin_patients():
     Lists all registered patients for administrative management.
     """
     patients = Patient.query.filter_by(role="patient").order_by(Patient.id.desc()).all()
-    patients = Patient.query.filter_by(role="patient").order_by(Patient.id.desc()).all()
     return jsonify([
         {
             "id": p.id,
@@ -385,7 +450,6 @@ def add_patient_admin():
     Allows admin to manually register a patient. Generates a unique Patient UID.
     """
     from werkzeug.security import generate_password_hash
-    from werkzeug.security import generate_password_hash
     import uuid
 
     data = request.get_json() or {}
@@ -398,11 +462,7 @@ def add_patient_admin():
     if not all([name, email, phone, gender, age]):
         return jsonify({"error": "All fields are required"}), 400
 
-    import re
-    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
-        return jsonify({"error": "Invalid email format"}), 400
-
-    existing = Patient.query.filter_by(email=email).first()
+    existing = _email_used_anywhere(email)
     if existing:
         return jsonify({"error": "Email already exists"}), 400
 
@@ -445,11 +505,7 @@ def update_patient(patient_id):
     if not all([name, email, phone, age, gender]):
         return jsonify({"error": "All fields are required"}), 400
 
-    import re
-    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
-        return jsonify({"error": "Invalid email format"}), 400
-
-    existing = Patient.query.filter(Patient.email == email, Patient.id != patient_id).first()
+    existing = _email_used_anywhere(email, exclude_patient_id=patient_id)
     if existing:
         return jsonify({"error": "Email already exists"}), 400
 
@@ -479,7 +535,6 @@ def get_admin_appointments():
     Fetches all appointments across the entire system.
     """
     appointments = Appointment.query.order_by(Appointment.id.desc()).all()
-    appointments = Appointment.query.order_by(Appointment.id.desc()).all()
     return jsonify([
         {
             "id": a.id,
@@ -493,8 +548,6 @@ def get_admin_appointments():
         }
         for a in appointments
     ])
-
-
 
 
 @admin_bp.route("/api/admin/appointments/<int:appointment_id>", methods=["DELETE"])

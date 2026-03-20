@@ -18,61 +18,112 @@ def send_email(to_email, subject, body):
     msg["To"] = to_email
     msg.set_content(body)
 
-    try:
-        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_USER, EMAIL_PASS)
-            server.send_message(msg)
-        print(f"[INFO] Email sent to {to_email}")
-    except Exception as e:
-        print(f"[ERROR] Failed to send email to {to_email}: {e}")
+    # We do NOT catch the exception here, so the caller knows if it failed
+    with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_PASS)
+        server.send_message(msg)
+    print(f"[INFO] Email successfully relay to {to_email}")
 
 @celery_app.task(name="tasks.send_appointment_reminders")
 def send_appointment_reminders():
     from app import app
     from models.appointment import Appointment, AppointmentStatus
+    from models.models import ReminderSettings
+    from utils.reminder_utils import get_or_create_reminder_settings, month_period
     
     with app.app_context():
         now = datetime.now()
-        reminder_window = now + timedelta(minutes=45)
+        settings = get_or_create_reminder_settings()
+        currentTime = now.strftime("%H:%M")
         
-        
-        appts = Appointment.query.filter(
-            Appointment.status == AppointmentStatus.BOOKED,
-            Appointment.mail_sent == False,
-            Appointment.appointment_datetime <= reminder_window,
-            Appointment.appointment_datetime >= now
-        ).all()
-        
-        for appt in appts:
-            patient = appt.patient
-            if not patient or not patient.email:
-                appt.mail_sent = True
-                appt.remark = "Failed: No email provided"
+        # ─── DAILY REMINDER DISPATCH ─────────────────────────────────────────
+        if settings.daily_enabled:
+            is_new_day = (settings.last_daily_sent_on is None or settings.last_daily_sent_on < now.date())
+            if is_new_day and currentTime >= settings.daily_time:
+                # Mark as dispatching today to avoid race/overlap
+                settings.last_daily_sent_on = now.date()
                 db.session.commit()
-                continue
                 
-            subject = "Appointment Reminder – HMS"
-            body = (
-                f"Hello {patient.name},\n\n"
-                f"This is a friendly reminder that you have an upcoming appointment scheduled on\n"
-                f"{appt.appointment_datetime.strftime('%A, %B %d, %Y at %I:%M %p')}.\n\n"
-                f"Please make sure to arrive a 15 minutes early. If you need to reschedule or have any questions,\n"
-                f"feel free to contact us.\n\n"
-                f"Thank you,\n"
-                f"HMS"
-            )
+                # Fetch all Booked appointments for TODAY
+                today_start = datetime.combine(now.date(), datetime.min.time())
+                today_end = datetime.combine(now.date(), datetime.max.time())
+                
+                appts = Appointment.query.filter(
+                    Appointment.status == AppointmentStatus.BOOKED,
+                    Appointment.appointment_datetime >= today_start,
+                    Appointment.appointment_datetime <= today_end
+                ).all()
+                
+                for appt in appts:
+                    patient = appt.patient
+                    if not patient or not patient.email:
+                        appt.mail_sent = True
+                        appt.remark = "Skipped: No email provided"
+                        db.session.commit()
+                        continue
+                        
+                    subject = "Today's Appointment Reminder – HMS"
+                    body = (
+                        f"Hello {patient.name},\n\n"
+                        f"This is a friendly reminder of your appointment today, "
+                        f"{appt.appointment_datetime.strftime('%B %d, %Y at %I:%M %p')}.\n\n"
+                        f"Please arrive at least 15 minutes early.\n\n"
+                        f"Thank you,\nHMS Admin"
+                    )
+                    
+                    try:
+                        send_email(patient.email, subject, body)
+                        appt.mail_sent = True
+                        appt.remark = "Successfully sent (Daily)"
+                        db.session.commit()
+                    except Exception as e:
+                        db.session.rollback()
+                        appt.mail_sent = False
+                        appt.remark = f"Failed: {str(e)}"
+                        db.session.commit()
+
+        # ─── MONTHLY REMINDER DISPATCH ───────────────────────────────────────
+        if settings.monthly_enabled:
+            curr_period = month_period(now)
+            is_new_period = (settings.last_monthly_sent_period != curr_period)
+            is_target_day = (now.day == (settings.monthly_day or 1))
             
-            try:
-                send_email(patient.email, subject, body)
-                appt.mail_sent = True
-                appt.remark = "Successfully sent"
+            if is_new_period and is_target_day and currentTime >= settings.monthly_time:
+                settings.last_monthly_sent_period = curr_period
                 db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                appt.mail_sent = False
-                appt.remark = f"Failed: {str(e)}"
-                db.session.commit()
+                
+                # Find all patients with appointments booked for THIS MONTH
+                month_end = (now.date().replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+                month_end_dt = datetime.combine(month_end, datetime.max.time())
+                
+                appts = Appointment.query.filter(
+                    Appointment.status == AppointmentStatus.BOOKED,
+                    Appointment.appointment_datetime >= now,
+                    Appointment.appointment_datetime <= month_end_dt
+                ).all()
+                
+                # We group by patient to avoid spamming multiple monthly mails if they have multiple appts
+                notified_patients = set()
+                
+                for appt in appts:
+                    patient = appt.patient
+                    if not patient or not patient.email or patient.id in notified_patients:
+                        continue
+                        
+                    subject = "Monthly Health Schedule Overview – HMS"
+                    body = (
+                        f"Hello {patient.name},\n\n"
+                        f"This is your monthly schedule overview for {now.strftime('%B %Y')}.\n"
+                        f"You have upcoming appointments at our facility. Please check your dashboard for details.\n\n"
+                        f"Stay healthy!\nHMS Team"
+                    )
+                    
+                    try:
+                        send_email(patient.email, subject, body)
+                        notified_patients.add(patient.id)
+                    except Exception: 
+                        pass # Monthly is secondary, don't break the loop
 
 @celery_app.task(name="tasks.sync_appointment_statuses")
 def sync_appointment_statuses():
@@ -126,9 +177,9 @@ def sync_appointment_statuses():
 
 # scheduler configuration
 celery_app.conf.beat_schedule = {
-    "check-appointments-every-30-seconds": {
+    "check-appointments-every-5-seconds": {
         "task": "tasks.send_appointment_reminders",
-        "schedule": 30.0,
+        "schedule": 5.0,
     },
     "sync-appointment-statuses-every-minute": {
         "task": "tasks.sync_appointment_statuses",

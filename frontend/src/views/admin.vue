@@ -61,7 +61,7 @@
             <div class="user-pill-role">Admin</div>
           </div>
         </div>
-        <button class="btn btn-ghost btn-sm logout-btn" @click="logout">
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;justify-content:center;" @click="logout">
           <i class="bi bi-box-arrow-right"></i> Logout
         </button>
       </div>
@@ -222,7 +222,7 @@
                 <th>Email</th>
                 <th>Phone</th>
                 <th>Status</th>
-                <th>Password Set</th>
+                <th>Password Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -237,8 +237,8 @@
                   <span class="status-pill" :class="doc.status || 'active'">{{ doc.status || 'active' }}</span>
                 </td>
                 <td class="text-center">
-                  <span :class="doc.set_password_status === 'password set successfully' ? 'text-green' : 'text-red'">
-                    {{ doc.set_password_status || 'password not set' }}
+                  <span :class="doc.password_set ? 'text-green' : 'text-red'">
+                    {{ doc.set_password_status || (doc.password_set ? 'password set successfully' : 'password not set') }}
                   </span>
                 </td>
                 <td class="actions-cell">
@@ -365,8 +365,8 @@
     </div>
 
     <div v-if="dailyToggle" style="padding:20px; display:flex; gap:10px;">
-      <input type="time" class="form-input">
-      <button class="btn-primary">Save</button>
+      <input type="time" class="form-input" v-model="dailyTime">
+      <button class="btn-primary" @click="saveReminderSettings">Save</button>
     </div>
   </div>
 
@@ -382,8 +382,9 @@
     </div>
 
     <div v-if="monthlyToggle" style="padding:20px; display:flex; gap:10px;">
-      <input type="date" class="form-input" :min="todayDate">
-      <button class="btn-primary">Save</button>
+      <input type="date" class="form-input" :min="todayDate" v-model="monthlyDate">
+      <input type="time" class="form-input" v-model="monthlyTime">
+      <button class="btn-primary" @click="saveReminderSettings">Save</button>
     </div>
   </div>
 
@@ -429,7 +430,7 @@
         <div class="modal-footer flex-between">
           <div>
             <button 
-              v-if="doctorForm.id && doctorForm.set_password_status !== 'password set successfully'" 
+              v-if="doctorForm.id && !doctorForm.password_set" 
               class="btn-warn"
               @click="resendDoctorPassword(doctorForm.id)"
             >
@@ -471,19 +472,6 @@
 </template>
 
 <script>
-
-/**
- * AdminDashboard View
- * -------------------
- * This component provides the main interface for hospital administrators.
- * It allows management of departments, doctors, patients, and appointments.
- * Features:
- * - Real-time statistics overview.
- * - CRUD operations for Departments and Doctors.
- * - Dynamic search and filtering for all data tables.
- * - Integrated password management for new doctor accounts.
- */
- 
 import api from "@/services/interceptor"
 
 export default {
@@ -493,6 +481,9 @@ export default {
       tab: "dashboard",
       dailyToggle: false,
       monthlyToggle: false,
+      dailyTime: "09:00",
+      monthlyDate: "",
+      monthlyTime: "09:00",
       error: "",
       successMessage: "",
       stats: {
@@ -520,7 +511,8 @@ export default {
         phone: "",
         department_id: "",
         status: "active",
-        set_password_status: "password not set"
+        password_set: false,
+        set_password_status: ""
       },
       editPatientForm: { id: null, name: "", email: "", phone: "", age: "", gender: "" },
       showPatientEditModal: false,
@@ -560,7 +552,8 @@ export default {
         this.loadDepartments(),
         this.loadDoctors(),
         this.loadPatients(),
-        this.loadAppointments()
+        this.loadAppointments(),
+        this.loadReminderSettings()
       ])
     },
     async loadDashboard() {
@@ -582,6 +575,50 @@ export default {
     async loadAppointments() {
       const res = await api.get("/api/admin/appointments")
       this.appointments = res.data || []
+    },
+    normalizeMonthlyDate(day) {
+      const now = new Date()
+      const year = now.getFullYear()
+      const monthNumber = now.getMonth() + 1
+      const maxDay = new Date(year, monthNumber, 0).getDate()
+      const month = String(monthNumber).padStart(2, "0")
+      const normalizedDay = String(Math.max(1, Math.min(maxDay, Number(day) || 1))).padStart(2, "0")
+      return `${year}-${month}-${normalizedDay}`
+    },
+    async loadReminderSettings() {
+      const res = await api.get("/api/admin/reminder-settings")
+      const settings = res.data || {}
+      this.dailyToggle = Boolean(settings.daily?.enabled)
+      this.dailyTime = settings.daily?.time || "09:00"
+      this.monthlyToggle = Boolean(settings.monthly?.enabled)
+      this.monthlyTime = settings.monthly?.time || "09:00"
+      this.monthlyDate = this.normalizeMonthlyDate(settings.monthly?.day || 1)
+    },
+    async saveReminderSettings() {
+      const monthlyDay = Number(String(this.monthlyDate || "").split("-")[2] || 1)
+      const payload = {
+        daily: {
+          enabled: this.dailyToggle,
+          time: this.dailyTime || "09:00",
+        },
+        monthly: {
+          enabled: this.monthlyToggle,
+          day: monthlyDay,
+          time: this.monthlyTime || "09:00",
+        },
+      }
+      try {
+        const res = await api.put("/api/admin/reminder-settings", payload)
+        const settings = res.data?.settings || payload
+        this.dailyToggle = Boolean(settings.daily?.enabled)
+        this.dailyTime = settings.daily?.time || "09:00"
+        this.monthlyToggle = Boolean(settings.monthly?.enabled)
+        this.monthlyTime = settings.monthly?.time || "09:00"
+        this.monthlyDate = this.normalizeMonthlyDate(settings.monthly?.day || 1)
+        this.notify("Reminder settings saved")
+      } catch (err) {
+        alert(err.response?.data?.error || err.message || "Failed to save reminder settings")
+      }
     },
     openDepartmentModal(dep = null) {
       this.departmentForm = dep
@@ -621,7 +658,8 @@ export default {
             phone: doc.phone || "",
             department_id: doc.department_id || "",
             status: doc.status || "active",
-            set_password_status: doc.set_password_status || "password not set"
+            password_set: doc.password_set || false,
+            set_password_status: doc.set_password_status || ""
           }
         : {
             id: null,
@@ -631,13 +669,15 @@ export default {
             phone: "",
             department_id: "",
             status: "active",
-            set_password_status: "password not set"
+            password_set: false,
+            set_password_status: ""
           }
       this.showDoctorModal = true
     },
     async saveDoctor() {
       const payload = { ...this.doctorForm }
       delete payload.id
+      delete payload.password_set
       delete payload.set_password_status
       if (!payload.name || !payload.email || !payload.phone || !payload.specialization || !payload.department_id) {
         alert("All fields are required"); return;
@@ -782,229 +822,375 @@ input:checked + .slider:before{
   --muted: #6b7280;
 }
 
-.sidebar-item{
-display:flex;
-align-items:center;
-gap:8px;
-padding:12px 16px;
-border-radius:10px;
-color:#374151;
-text-decoration:none;
-font-weight:500;
-transition:0.2s;
-}
-
-.sidebar-item:hover{
-background:#f3f4f6;
-}
-
-.sidebar-item.router-link-active{
-background:#3b82f6;
-color:white;
-}
 .sidebar {
-  width: 260px;
-  background: #f3f6fb;
-  padding: 30px 20px;
+  width: 280px;
+  background: #ffffff;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e5e7eb;
+  padding: 24px;
 }
 
 .sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 0 28px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
-  font-family: "Sora", sans-serif;
-  font-size: 15px;
+  gap: 12px;
+  margin-bottom: 40px;
+  font-size: 20px;
   font-weight: 700;
-  color: #111827;
+  color: var(--blue);
 }
 
-.sidebar-logo .logo-icon {
-  width: 34px;
-  height: 34px;
+.logo-icon {
+  width: 40px;
+  height: 40px;
   background: var(--blue);
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   color: white;
-  font-size: 18px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+}
+
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
 }
 
 .nav-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 14px 18px;
-  margin-bottom: 12px;
-  border-radius: 10px;
-  border: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 0;
   background: transparent;
-  color: #111827;
-  font-size: 16px;
+  border-radius: 12px;
+  color: var(--muted);
   font-weight: 500;
-  cursor: pointer;
-  transition: 0.2s;
+  text-align: left;
+  transition: all 0.2s;
 }
 
-.nav-item:hover { background: var(--blue); color: white; }
-.nav-item.active { background: var(--blue); color: white; }
-
-.sidebar-bottom { 
-  margin-top: auto; 
-  padding: 16px 0; 
-  border-top: 1px solid var(--border); 
+.nav-item:hover {
+  background: var(--blue-lt);
+  color: var(--blue);
 }
 
-.user-pill { 
-  display: flex; 
-  align-items: center; 
-  gap: 10px; 
-  padding: 10px 12px; 
-  background: white; 
-  border-radius: 12px; 
-  margin-bottom: 12px;
-  border: 1px solid var(--border);
+.nav-item.active {
+  background: var(--blue);
+  color: white;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
 }
 
-.avatar { 
-  width: 34px; 
-  height: 34px; 
-  border-radius: 50%; 
-  background: var(--blue); 
-  color: white; 
-  font-weight: 700; 
-  font-size: 14px; 
-  display: flex; 
-  align-items: center; 
-  justify-content: center; 
-  flex-shrink: 0; 
+.sidebar-bottom {
+  margin-top: auto;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
 }
 
-.user-pill-info { flex: 1; overflow: hidden; }
-.user-pill-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.user-pill-role { font-size: 11px; color: var(--muted); }
-
-.btn { 
-  padding: 8px 18px; 
-  border-radius: 9px; 
-  font-size: 13px; 
-  font-weight: 600; 
-  border: none; 
-  cursor: pointer; 
-  display: inline-flex; 
-  align-items: center; 
-  gap: 6px; 
-  transition: all .18s; 
+.user-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.btn-ghost { 
-  background: transparent; 
-  color: var(--blue); 
-  border: 1px solid var(--blue); 
-}
-
-.btn-ghost:hover { 
-  background: var(--blue-lt); 
-}
-
-.btn-sm { 
-  padding: 5px 12px; 
-  font-size: 12px; 
-}
-
-.logout-btn {
-  width: 100%;
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--blue, #2563eb);
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
+
+.user-pill-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.user-pill-role {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------------- BUTTONS ---------------- */
+.btn {
+  padding: 8px 18px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.18s;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--blue, #2563eb);
+  border: 1px solid var(--blue, #2563eb);
+}
+
+.btn-ghost:hover {
+  background: var(--blue-lt, #eff6ff);
+}
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+/* ---------------- MAIN CONTENT ---------------- */
 
 .main-content {
   flex: 1;
-  padding: 50px;
   overflow-y: auto;
+  padding: 40px;
 }
 
-/* ---------------- DASHBOARD ---------------- */
+h1 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 24px;
-  margin-bottom: 32px;
 }
 
 .stat-card {
   background: white;
   padding: 24px;
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  border-radius: 20px;
+  border: 1px solid var(--border);
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
 }
 
-.stat-label { font-size: 14px; color: #6b7280; }
-.stat-value { font-size: 32px; font-weight: 700; }
-.stat-icon { font-size: 24px; padding: 12px; border-radius: 12px; }
-.bg-blue { background: #3b82f6; color: white; }
-.bg-green { background: #10b981; color: white; }
-.bg-purple { background: #a855f7; color: white; }
-.bg-orange { background: #f97316; color: white; }
+.stat-label {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.stat-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.stat-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+}
+
+.bg-blue { background: #eff6ff; color: #2563eb; }
+.bg-green { background: #f0fdf4; color: #16a34a; }
+.bg-purple { background: #faf5ff; color: #9333ea; }
+.bg-orange { background: #fff7ed; color: #ea580c; }
 
 /* ---------------- TABLES ---------------- */
-.table-card { background: white; border: 1px solid #e5e7eb; border-radius: 12px; }
-.table-header { padding: 20px; border-bottom: 1px solid #e5e7eb; }
-.data-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.data-table th { background: #f9fafb; padding: 12px 16px; text-align: left; color: #111827; font-weight: 600; font-size: 15px; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; }
-.data-table td { padding: 14px 16px; border-top: 1px solid #e5e7eb; font-size: 14px; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; }
-.empty-row { text-align: center; padding: 40px; color: #9ca3af; }
-.font-medium { font-weight: 500; }
-.description-cell { max-width: 300px; }
+
+.table-card {
+  background: white;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.table-header {
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 16px 24px;
+  background: #f9fafb;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.data-table td {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.description-cell {
+  max-width: 300px;
+  color: var(--muted);
+}
 
 .status-pill {
   padding: 4px 12px;
-  border-radius: 9999px;
+  border-radius: 999px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   text-transform: capitalize;
 }
-.status-pill.completed { background: #dcfce7; color: #16a34a; }
-.status-pill.cancelled { background: #fee2e2; color: #dc2626; }
-.status-pill.not_attended { background: #fef3c7; color: #d97706; }
-.status-pill.not_visited { background: #ffedd5; color: #ea580c; }
-.status-pill.not_visited_cancelled { background: #f3f4f6; color: #4b5563; }
-.status-pill.active { background: #dcfce7; color: #16a34a; }
-.status-pill.inactive { background: #fee2e2; color: #dc2626; }
 
-/* ---------------- BUTTONS ---------------- */
-.flex-between { display: flex; align-items: center; justify-content: space-between; }
-.btn-primary { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 500; cursor: pointer; }
-.btn-ghost { background: white; border: 1px solid #d1d5db; padding: 10px 16px; border-radius: 8px; cursor: pointer; }
-.btn-warn { background: #f59e0b; color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; }
-.text-blue { color: #2563eb; background: none; border: none; cursor: pointer; margin-right: 12px; }
-.text-red { color: #dc2626; background: none; border: none; cursor: pointer; }
-.text-green { color: #10b981; font-weight: 600; }
-.search-input { border: 1px solid #e5e7eb; padding: 8px 12px; border-radius: 8px; }
+.status-pill.active, .status-pill.booked { background: #dcfce7; color: #16a34a; }
+.status-pill.inactive, .status-pill.cancelled { background: #fee2e2; color: #dc2626; }
+.status-pill.pending { background: #fef3c7; color: #d97706; }
 
-/* ---------------- MODALS ---------------- */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal-box { background: white; width: 400px; padding: 24px; border-radius: 12px; display: flex; flex-direction: column; gap: 16px; }
-.modal-title { font-size: 18px; font-weight: 600; }
-.modal-form { display: flex; flex-direction: column; gap: 12px; }
-.form-input { border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 12px; }
+.actions-cell button {
+  padding: 4px 8px;
+  font-weight: 600;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
 
-/* ---------------- UTILS ---------------- */
-.success-popup { position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 24px; border-radius: 8px; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-.error-banner { background: #fee2e2; color: #dc2626; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+.text-blue { color: var(--blue); }
+.text-red { color: #ef4444; }
+.text-green { color: #16a34a; }
+
+.empty-row {
+  text-align: center;
+  padding: 40px !important;
+  color: var(--muted);
+}
+
+/* ---------------- UTILITIES ---------------- */
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .space-y-6 > * + * { margin-top: 24px; }
 .space-y-8 > * + * { margin-top: 32px; }
-.text-2xl { font-size: 24px; }
-.font-semibold { font-weight: 600; }
-.text-gray-500 { color: #6b7280; }
-.text-center { text-align: center; }
+
+.btn-primary {
+  background: var(--blue);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: 0;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+
+
+.btn-warn {
+  background: #fff7ed;
+  color: #ea580c;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #ffedd5;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.search-input {
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 280px;
+}
+
+.success-popup {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  background: #16a34a;
+  color: white;
+  padding: 16px 24px;
+  border-radius: 12px;
+  box-shadow: 0 10px 15px rgba(0,0,0,0.1);
+  z-index: 100;
+}
+
+/* ---------------- MODALS ---------------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+
+.modal-box {
+  background: white;
+  width: 480px;
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+}
+
+.modal-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-input {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.modal-footer {
+  margin-top: 32px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+@media (max-width: 1200px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
 </style>
