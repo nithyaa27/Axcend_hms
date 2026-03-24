@@ -96,7 +96,7 @@ ROLE_DASHBOARD_PATHS = {
 }
 
 DEFAULT_ADMIN = {
-    "email": "admin@gmail.com",
+    "email": "nithyatm2709@gmail.com",
     "password": "Admin@123",
     "role": "admin",
     "name": "Admin",
@@ -391,6 +391,7 @@ def reset_password():
 
     if hasattr(user, 'password_hash'):
         user.password_hash = generate_password_hash(password)
+        user.password_set = True
         user.set_password_status = "password set successfully"
     else:
         user.password = generate_password_hash(password)

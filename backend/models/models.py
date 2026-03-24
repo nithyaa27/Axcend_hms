@@ -57,6 +57,7 @@ class Doctor(db.Model):
 
     def update_password(self, password):
         self.password_hash = generate_password_hash(password)
+        self.password_set = True
         self.set_password_status = "password set successfully"
 
     def check_password(self, password):

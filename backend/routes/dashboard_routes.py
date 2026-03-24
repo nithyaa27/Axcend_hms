@@ -9,6 +9,7 @@ from extensions import db
 from models.patient import Patient
 from models.appointment import Appointment, AppointmentStatus
 from models.models import Doctor, DoctorSchedule, Department, Prescription, DoctorAvailability
+from utils.email_utils import send_patient_reminder_email
 
 # ==========================================
 # Dashboard & Patient Routes Blueprint
@@ -477,6 +478,7 @@ def list_appointments():
             "reschedulable": derived["reschedulable"],
             "cancelable": derived["cancelable"],
             "status_note": derived["status_note"],
+            "mail_sent":   a.mail_sent,
             "doctor":    a.doctor.name           if a.doctor else None,
             "specialty": a.doctor.specialization if a.doctor else None,
         }
@@ -553,6 +555,28 @@ def book_appointment():
     )
     db.session.add(new_apt)
     db.session.commit()
+
+    # Notify Admin about new booking
+    admin_email = "nithyatm2709@gmail.com"
+    subject_admin = "New Appointment Booked - HMS City Hospital"
+    body_admin = f"""
+Attention Admin,
+
+A new appointment has been successfully booked.
+
+Booking Details:
+- Patient: {g.user.name} (ID: {g.user.patient_uid})
+- Consulting Doctor: Dr. {doc.name}
+- Specialization: {doc.specialization or 'N/A'}
+- Date: {apt_dt.strftime('%B %d, %Y')}
+- Time: {time_slot}
+
+This is for your information and records.
+
+Thank you,
+HMS City Hospital
+    """
+    send_patient_reminder_email(admin_email, subject_admin, body_admin)
 
     return jsonify({
         "status":  "success",

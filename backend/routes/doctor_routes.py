@@ -97,11 +97,24 @@ def _get_reference_date(doctor_id):
 
 def _serialize_appointment(appt, rx, now_local):
     follow_up_date = rx.follow_up_date.isoformat() if rx and rx.follow_up_date else None
-    can_treat_now = (
+    
+    # Derived status includes the 10-min grace period logic
+    derived_status = appt.get_derived_status(now_local)
+    
+    # Doctor can mark attending only if it's currently BOOKED and within the 10-min window
+    # Note: appt.appointment_datetime <= now_local ensures they can't attend a future appointment early,
+    # unless you want to allow that? User said "after appointment booked time within 10 min doctor can update status".
+    # So we strictly follow: appointment_time <= now <= appointment_time + 10 mins.
+    can_mark_attending = (
         appt.status == AppointmentStatus.BOOKED
         and appt.appointment_datetime is not None
         and appt.appointment_datetime <= now_local
+        and (now_local - appt.appointment_datetime) <= timedelta(minutes=10)
     )
+
+    # Treatment is allowed ONLY if the status is ATTENDING
+    can_treat_now = (appt.status == AppointmentStatus.ATTENDING)
+    
     can_edit_treatment = appt.status == AppointmentStatus.COMPLETED and rx is not None
     patient = appt.patient
 
@@ -111,7 +124,8 @@ def _serialize_appointment(appt, rx, now_local):
         "datetime": appt.appointment_datetime.isoformat(),
         "date": appt.appointment_datetime.date().isoformat(),
         "time": appt.appointment_datetime.strftime("%I:%M %p").lstrip("0"),
-        "status": appt.get_derived_status(now_local),
+        "status": derived_status,
+        "actual_status": appt.status, # The raw DB status
         "patient_name": patient.name if patient else f"Patient {appt.patient_id}",
         "patient_id": patient.id if patient else appt.patient_id,
         "patient_uid": (patient.patient_uid if patient and patient.patient_uid else f"patient-{appt.patient_id}"),
@@ -119,8 +133,9 @@ def _serialize_appointment(appt, rx, now_local):
         "patient_phone": patient.phone if patient else None,
         "has_treatment": rx is not None,
         "can_treat_now": can_treat_now,
+        "can_mark_attending": can_mark_attending,
         "can_edit_treatment": can_edit_treatment,
-        "action_label": "Edit Treatment" if can_edit_treatment else ("Add Treatment" if can_treat_now else "Await Time"),
+        "action_label": "Edit Treatment" if can_edit_treatment else ("Add Treatment" if can_treat_now else ( "Attending" if can_mark_attending else "Await Time")),
         "follow_up_date": follow_up_date,
     }
 
@@ -375,8 +390,9 @@ def create_or_update_treatment(doctor_id, appointment_id):
         return jsonify({"error": "Appointment not found"}), 404
     if appointment.status == AppointmentStatus.CANCELLED:
         return jsonify({"error": "Cannot add or update treatment for cancelled appointment"}), 409
-    if appointment.status == AppointmentStatus.BOOKED and appointment.appointment_datetime and appointment.appointment_datetime > datetime.now():
-        return jsonify({"error": "Treatment can be added only at or after appointment time"}), 409
+    
+    if appointment.status not in {AppointmentStatus.ATTENDING, AppointmentStatus.COMPLETED}:
+         return jsonify({"error": "Please mark the appointment as 'Attending' before adding treatment information."}), 409
 
     follow_up_date = None
     if follow_up_date_raw:
@@ -536,8 +552,14 @@ def update_appointment_status(doctor_id, appointment_id):
 
     data = request.get_json() or {}
     status = (data.get("status") or "").strip().lower()
-    if status not in {AppointmentStatus.BOOKED, AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED}:
-        return jsonify({"error": "status must be booked/completed/cancelled"}), 400
+    allowed = {
+        AppointmentStatus.BOOKED, 
+        AppointmentStatus.ATTENDING, 
+        AppointmentStatus.COMPLETED, 
+        AppointmentStatus.CANCELLED
+    }
+    if status not in allowed:
+        return jsonify({"error": f"Invalid status: {status}"}), 400
 
     appointment = Appointment.query.filter_by(id=appointment_id, doctor_id=doctor_id).first()
     if not appointment:
@@ -712,5 +734,46 @@ Thank you,
 HMS City Hospital
         """
         send_patient_reminder_email(patient.email, subject, body)
+
+    # Send email notification to the new (target) doctor
+    if target_doctor and target_doctor.email:
+        subject_doctor = "Transferred Appointment Assigned to You - HMS City Hospital"
+        body_doctor = f"""
+Dear Dr. {target_doctor.name},
+
+This is to inform you that an appointment has been transferred to you from Dr. {original_doctor_name} due to their emergency work.
+
+Appointment Details:
+- Patient: {patient.name if patient else 'N/A'} (ID: {patient.patient_uid if patient else 'N/A'})
+- Date: {appointment.appointment_datetime.strftime('%B %d, %Y')}
+- Time: {appointment.appointment_datetime.strftime('%I:%M %p').lstrip('0')}
+
+Please check your dashboard for further details.
+
+Thank you,
+HMS City Hospital
+        """
+        send_patient_reminder_email(target_doctor.email, subject_doctor, body_doctor)
+
+    # Send email notification to admin
+    admin_email = "nithyatm2709@gmail.com" 
+    subject_admin = "Appointment Transfer Alert - HMS City Hospital"
+    body_admin = f"""
+Attention Admin,
+
+An appointment transfer has occurred due to an emergency.
+
+Transfer Details:
+- Original Doctor: Dr. {original_doctor_name}
+- New Doctor: Dr. {target_doctor.name}
+- Patient: {patient.name if patient else 'N/A'} (ID: {patient.patient_uid if patient else 'N/A'})
+- Appointment Time: {appointment.appointment_datetime.strftime('%B %d, %Y')} at {appointment.appointment_datetime.strftime('%I:%M %p').lstrip('0')}
+
+This is for your information and records.
+
+Thank you,
+HMS City Hospital
+    """
+    send_patient_reminder_email(admin_email, subject_admin, body_admin)
 
     return jsonify({"success": True, "message": "Appointment transferred successfully"})

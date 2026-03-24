@@ -39,21 +39,24 @@ def send_appointment_reminders():
         
         # ─── DAILY REMINDER DISPATCH ─────────────────────────────────────────
         if settings.daily_enabled:
-            is_new_day = (settings.last_daily_sent_on is None or settings.last_daily_sent_on < now.date())
-            if is_new_day and currentTime >= settings.daily_time:
-                # Mark as dispatching today to avoid race/overlap
-                settings.last_daily_sent_on = now.date()
-                db.session.commit()
-                
-                # Fetch all Booked appointments for TODAY
+            # To allow testing, we check if current time is >= daily_time
+            # and then fetch only UNSENT appointments for today.
+            if currentTime >= settings.daily_time:
                 today_start = datetime.combine(now.date(), datetime.min.time())
                 today_end = datetime.combine(now.date(), datetime.max.time())
                 
                 appts = Appointment.query.filter(
                     Appointment.status == AppointmentStatus.BOOKED,
                     Appointment.appointment_datetime >= today_start,
-                    Appointment.appointment_datetime <= today_end
+                    Appointment.appointment_datetime <= today_end,
+                    Appointment.mail_sent == False # Only send what hasn't been sent yet today
                 ).all()
+
+                if appts:
+                    print(f"[INFO] Daily reminder trigger hit. Found {len(appts)} unsent appointments.")
+                    # Update settings
+                    settings.last_daily_sent_on = now.date()
+                    db.session.commit()
                 
                 for appt in appts:
                     patient = appt.patient
@@ -133,6 +136,8 @@ def sync_appointment_statuses():
     with app.app_context():
         now = datetime.now()
         ten_mins_ago = now - timedelta(minutes=10)
+        
+        # 1. First, find all BOOKED appointments past the 10-min grace period and mark them as NOT_ATTENDED
         missed_apts = Appointment.query.filter(
             Appointment.status == AppointmentStatus.BOOKED,
             Appointment.appointment_datetime <= ten_mins_ago
@@ -140,25 +145,40 @@ def sync_appointment_statuses():
 
         for apt in missed_apts:
             apt.status = AppointmentStatus.NOT_ATTENDED
-            if not apt.missed_mail_sent:
-                patient = apt.patient
-                if patient and patient.email:
-                    try:
-                        doctor_name = apt.doctor.name if apt.doctor else "your doctor"
-                        appt_time = apt.appointment_datetime.strftime("%I:%M %p")
-                        missed_subject = "Missed Appointment Notification – HMS"
-                        missed_body = (
-                            f"Hello {patient.name},\n\n"
-                            f"You missed your scheduled appointment with Dr. {doctor_name} at {appt_time}.\n\n"
-                            f"We missed you today! Please visit the dashboard to reschedule your appointment at your earliest convenience.\n"
-                            f"Note: If you do not reschedule within 24 hours, the appointment will be cancelled.\n\n"
-                            f"If you have already visited or rescheduled, please ignore this message.\n\n"
-                            f"Thank you,\n"
-                            f"HMS Team"
-                        )
-                        send_email(patient.email, missed_subject, missed_body)
-                        apt.missed_mail_sent = True
-                    except Exception: pass
+            apt.remark = "Auto-marked as Not Attended after 10-minute grace period"
+        
+        # Save the status changes first to avoid issues
+        db.session.commit()
+
+        # 2. Now find all appointments that are NOT_ATTENDED and send the missed mail if not already sent
+        # This ensures that whether it was auto-marked OR manually marked, they get the mail.
+        # But if it's currently ATTENDING, they won't get it.
+        to_notify = Appointment.query.filter(
+            Appointment.status == AppointmentStatus.NOT_ATTENDED,
+            Appointment.missed_mail_sent == False
+        ).all()
+
+        for apt in to_notify:
+            patient = apt.patient
+            if patient and patient.email:
+                try:
+                    doctor_name = apt.doctor.name if apt.doctor else "your doctor"
+                    appt_time = apt.appointment_datetime.strftime("%I:%M %p")
+                    missed_subject = "Missed Appointment Notification – HMS"
+                    missed_body = (
+                        f"Hello {patient.name},\n\n"
+                        f"You missed your scheduled appointment with Dr. {doctor_name} at {appt_time}.\n\n"
+                        f"We missed you today! Please visit the dashboard to reschedule your appointment at your earliest convenience.\n"
+                        f"Note: If you do not reschedule within 24 hours, the appointment will be cancelled.\n\n"
+                        f"If you have already visited or rescheduled, please ignore this message.\n\n"
+                        f"Thank you,\n"
+                        f"HMS Team"
+                    )
+                    send_email(patient.email, missed_subject, missed_body)
+                    apt.missed_mail_sent = True
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
 
         one_day_ago = now - timedelta(hours=24)
         to_cancel_apts = Appointment.query.filter(

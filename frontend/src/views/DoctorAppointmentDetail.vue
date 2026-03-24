@@ -14,10 +14,10 @@
 
     <section v-else class="detail-page">
       <div class="page-header">
-        <button class="back-link" @click="$router.back()">
+        <a :href="`/doctor?doctorId=${doctorId}`" class="back-link">
           <i class="bi bi-arrow-left"></i>
           <span>Back to Dashboard</span>
-        </button>
+        </a>
         <p class="page-intro">View and manage appointment information</p>
       </div>
 
@@ -71,10 +71,19 @@
               </div>
             </div>
             <div class="info-row status-row">
-              <div>
+              <div class="status-display">
                 <span>Status</span>
                 <span class="status-badge" :class="appointment.status">{{ appointment.status }}</span>
               </div>
+              <button
+                v-if="appointment.can_mark_attending"
+                type="button"
+                class="attending-btn"
+                @click="markAsAttending"
+              >
+                <i class="bi bi-person-check"></i>
+                Mark as Attending
+              </button>
             </div>
           </div>
         </article>
@@ -87,9 +96,11 @@
             v-if="!showForm"
             type="button"
             class="primary-btn"
+            :class="{ 'disabled-style': appointment.status === 'booked' }"
+            :disabled="appointment.status === 'booked'"
             @click="openTreatmentForm"
           >
-            {{ treatment ? "Edit Treatment" : "Add Treatment" }}
+            {{ (treatment || appointment.can_edit_treatment) ? "Edit Treatment" : "Add Treatment" }}
           </button>
         </div>
 
@@ -292,6 +303,18 @@ export default {
         this.saving = false
       }
     },
+    async markAsAttending() {
+      if (!this.doctorId || !this.appointmentId) return
+      try {
+        await api.patch(`/api/doctor/${this.doctorId}/appointments/${this.appointmentId}/status`, {
+          status: 'attending'
+        })
+        await this.loadAppointment()
+      } catch (error) {
+        console.error("Failed to mark as attending:", error)
+        alert(error.response?.data?.error || "Failed to update status to attending")
+      }
+    },
   },
 }
 </script>
@@ -434,9 +457,41 @@ export default {
 }
 
 .status-badge.booked { background: #dbeafe; color: #2563eb; }
+.status-badge.attending { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
 .status-badge.completed { background: #dcfce7; color: #16a34a; }
 .status-badge.cancelled { background: #fee2e2; color: #dc2626; }
 .status-badge.not_attended { background: #fef3c7; color: #d97706; }
+
+.status-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+.attending-btn {
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s;
+}
+
+.attending-btn:hover {
+  background: #1d4ed8;
+}
+
+.disabled-style {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #9ca3af !important;
+}
 
 .treatment-card {
   padding: 20px 26px 24px;

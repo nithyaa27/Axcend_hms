@@ -475,7 +475,7 @@ export default {
     },
     todayAppointments() {
       return this.schedule
-        .filter((appointment) => appointment.date === this.referenceDate && appointment.status === "booked")
+        .filter((appointment) => appointment.date === this.referenceDate && (appointment.actual_status === "booked" || appointment.actual_status === "attending"))
         .sort((left, right) => new Date(left.datetime) - new Date(right.datetime))
     },
     upcomingAppointments() {
@@ -1096,6 +1096,7 @@ th {
 }
 
 .status-badge.booked { background: #dbeafe; color: #2563eb; }
+.status-badge.attending { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
 .status-badge.completed { background: #dcfce7; color: #16a34a; }
 .status-badge.cancelled { background: #fee2e2; color: #dc2626; }
 .status-badge.not_attended { background: #fef3c7; color: #d97706; }

@@ -55,9 +55,11 @@ def send_doctor_password_email(email, token, frontend_base="http://localhost:517
 
 def send_patient_reminder_email(email, subject, message):
     msg = _build_message(subject, email, message)
-    _send_email_sync(msg)
+    thread = threading.Thread(target=_send_email_sync, args=(msg,))
+    thread.start()
 
 
 def send_patient_transfer_email(email, subject, message):
     msg = _build_message(subject, email, message)
-    _send_email_sync(msg)
+    thread = threading.Thread(target=_send_email_sync, args=(msg,))
+    thread.start()

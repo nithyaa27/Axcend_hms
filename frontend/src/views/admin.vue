@@ -237,7 +237,10 @@
                   <span class="status-pill" :class="doc.status || 'active'">{{ doc.status || 'active' }}</span>
                 </td>
                 <td class="text-center">
-                  <span :class="doc.password_set ? 'text-green' : 'text-red'">
+                  <span :style="{ 
+                    color: ( (doc.set_password_status && doc.set_password_status.toLowerCase().includes('success')) || doc.password_set ) ? '#16a34a' : '#ef4444',
+                    fontWeight: ( (doc.set_password_status && doc.set_password_status.toLowerCase().includes('success')) || doc.password_set ) ? '700' : '500'
+                  }">
                     {{ doc.set_password_status || (doc.password_set ? 'password set successfully' : 'password not set') }}
                   </span>
                 </td>
@@ -430,7 +433,7 @@
         <div class="modal-footer flex-between">
           <div>
             <button 
-              v-if="doctorForm.id && !doctorForm.password_set" 
+              v-if="doctorForm.id && !doctorForm.password_set && doctorForm.set_password_status !== 'password set successfully'" 
               class="btn-warn"
               @click="resendDoctorPassword(doctorForm.id)"
             >
@@ -730,7 +733,7 @@ export default {
     },
     async logout() {
       localStorage.clear()
-      this.$router.push("/login")
+      window.location.href = "/login"
     }
   },
   async mounted() {
@@ -1064,6 +1067,7 @@ h1 {
 }
 
 .status-pill.active, .status-pill.booked { background: #dcfce7; color: #16a34a; }
+.status-pill.attending { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
 .status-pill.inactive, .status-pill.cancelled { background: #fee2e2; color: #dc2626; }
 .status-pill.pending { background: #fef3c7; color: #d97706; }
 

@@ -4,6 +4,7 @@ from extensions import db
 
 class AppointmentStatus:
     BOOKED    = "booked"
+    ATTENDING = "attending"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     NOT_ATTENDED = "not_attended"
@@ -12,9 +13,7 @@ class AppointmentStatus:
 
 
 class Appointment(db.Model):
-
     __tablename__ = "appointments"
-
     id = db.Column(db.Integer, primary_key=True)
 
     doctor_id = db.Column(db.Integer, db.ForeignKey("doctors.id"),   nullable=False)
@@ -43,7 +42,7 @@ class Appointment(db.Model):
         status = self.status
 
         # 1. If it's already a 'final' or 'processed' status, return it directly.
-        # This keeps 'visited', 'completed', 'cancelled', 'not_attended', etc. stable.
+        # This keeps 'completed', 'cancelled', 'not_attended', etc. stable.
         if not dt or status != AppointmentStatus.BOOKED:
             return status
 
@@ -54,9 +53,10 @@ class Appointment(db.Model):
         if elapsed >= timedelta(hours=24):
             return AppointmentStatus.CANCELLED
 
-        # If it's in the past but less than 24 hours, it's 'not_attended'
-        if dt < now:
+        # 10 minute grace period for the doctor to mark it as 'attending'
+        # If it's more than 10 mins past the scheduled time and still 'booked', it's 'not_attended'
+        if dt < now and elapsed > timedelta(minutes=10):
             return AppointmentStatus.NOT_ATTENDED
 
-        # Otherwise, it's still 'booked'
-        return AppointmentStatus.BOOKED
+        # Otherwise (even if it's currently in that 10-min window), it's still 'booked'
+        return AppointmentStatus.BOOKED

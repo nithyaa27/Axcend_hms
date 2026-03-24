@@ -7,14 +7,14 @@
       </div>
 
       <nav class="sidebar-nav">
-        <router-link :to="dashboardRoute" class="nav-link" :class="{ active: active === 'dashboard' }">
+        <a :href="`/doctor?doctorId=${doctorId}`" class="nav-link" :class="{ active: active === 'dashboard' }">
           <i class="bi bi-grid"></i>
           <span>Dashboard</span>
-        </router-link>
-        <router-link :to="historyRoute" class="nav-link" :class="{ active: active === 'history' }">
+        </a>
+        <a :href="`/doctor/patients?doctorId=${doctorId}`" class="nav-link" :class="{ active: active === 'history' }">
           <i class="bi bi-file-earmark-text"></i>
           <span>Patient History</span>
-        </router-link>
+        </a>
       </nav>
 
       <div class="sidebar-bottom">
@@ -85,7 +85,7 @@ export default {
       localStorage.removeItem("role")
       localStorage.removeItem("name")
       localStorage.removeItem("doctorId")
-      this.$router.push("/login")
+      window.location.href = "/login"
     },
   },
 }
