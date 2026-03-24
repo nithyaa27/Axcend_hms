@@ -158,6 +158,8 @@ def sync_appointment_statuses():
             Appointment.missed_mail_sent == False
         ).all()
 
+        admin_email = os.environ.get("ADMIN_EMAIL", "nithyatm2709@gmail.com")
+
         for apt in to_notify:
             patient = apt.patient
             if patient and patient.email:
@@ -174,7 +176,21 @@ def sync_appointment_statuses():
                         f"Thank you,\n"
                         f"HMS Team"
                     )
+                    
+                    # Send to Patient
                     send_email(patient.email, missed_subject, missed_body)
+                    
+                    # Send to Admin
+                    admin_body = (
+                        f"Missed Appointment Alert\n\n"
+                        f"Patient: {patient.name} ({patient.email})\n"
+                        f"Doctor: {doctor_name}\n"
+                        f"Scheduled Time: {appt_time}\n"
+                        f"Status: Not Attended (Auto-marked)\n\n"
+                        f"Please follow up if necessary."
+                    )
+                    send_email(admin_email, f"ALERT: Missed Appointment - {patient.name}", admin_body)
+
                     apt.missed_mail_sent = True
                     db.session.commit()
                 except Exception:
