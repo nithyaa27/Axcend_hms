@@ -68,7 +68,7 @@
     </aside>
 
     <!-- Main -->
-    <main class="main-content">
+    <main class="main-content" :class="{ 'chat-mode': tab === 'chat' }">
       <div v-if="successMessage" class="success-popup">
         {{ successMessage }}
       </div>
@@ -153,6 +153,8 @@
           </table>
         </div>
       </div>
+
+
 
       <!-- DEPARTMENTS TAB -->
       <div v-if="tab === 'departments'" class="space-y-6">
@@ -471,14 +473,18 @@
       </div>
     </div>
 
+    <!-- Floating Chat injected at root layout -->
+    <FloatingChat v-if="adminName" role="admin" :userId="currentUserId || 1" />
   </div>
 </template>
 
 <script>
 import api from "@/services/interceptor"
+import FloatingChat from "@/components/FloatingChat.vue"
 
 export default {
   name: "AdminDashboard",
+  components: { FloatingChat },
   data() {
     return {
       tab: "dashboard",
@@ -518,8 +524,11 @@ export default {
         set_password_status: ""
       },
       editPatientForm: { id: null, name: "", email: "", phone: "", age: "", gender: "" },
-      showPatientEditModal: false,
+      showPatientEditModal: false
     }
+  },
+  mounted() {
+    try { this.loadAll(); } catch (err) { this.error = "Connection error"; }
   },
   computed: {
   todayDate() {
@@ -546,6 +555,9 @@ export default {
     },
     filteredAppointments() {
       return this.appointments
+    },
+    currentUserId() {
+      return localStorage.getItem("userId")
     }
   },
   methods: {
@@ -662,7 +674,7 @@ export default {
             department_id: doc.department_id || "",
             status: doc.status || "active",
             password_set: doc.password_set || false,
-            set_password_status: doc.set_password_status || ""
+            set_password_status: ""
           }
         : {
             id: null,
@@ -734,11 +746,9 @@ export default {
     async logout() {
       localStorage.clear()
       window.location.href = "/login"
-    }
+    },
   },
-  async mounted() {
-    try { await this.loadAll(); } catch (err) { this.error = "Connection error"; }
-  }
+  // removed async mounted as I moved it to mounted() block
 }
 </script>
 
@@ -887,6 +897,22 @@ nav {
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
 }
 
+.nav-item {
+  position: relative;
+}
+
+.notif-dot {
+  width: 8px;
+  height: 8px;
+  background: #10b981;
+  border-radius: 50%;
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 1px solid white;
+}
+
 .sidebar-bottom {
   margin-top: auto;
   padding-top: 24px;
@@ -959,6 +985,12 @@ nav {
   flex: 1;
   overflow-y: auto;
   padding: 40px;
+}
+
+.main-content.chat-mode {
+  overflow-y: hidden;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 h1 {

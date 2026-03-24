@@ -739,7 +739,7 @@ HMS City Hospital
     if target_doctor and target_doctor.email:
         subject_doctor = "Transferred Appointment Assigned to You - HMS City Hospital"
         body_doctor = f"""
-Dear Dr. {target_doctor.name},
+Dear {target_doctor.name},
 
 This is to inform you that an appointment has been transferred to you from Dr. {original_doctor_name} due to their emergency work.
 

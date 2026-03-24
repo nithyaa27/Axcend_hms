@@ -5,7 +5,12 @@
     :doctor-name="doctorDisplayName"
     @profile="showProfileModal = true"
   >
-    <template #header-left />
+    <template #header-left>
+      <div class="header-title-block">
+        <h1>Doctor Dashboard</h1>
+        <p>Welcome back, {{ doctorDisplayName }}</p>
+      </div>
+    </template>
 
     <div v-if="!doctorId" class="id-banner">
       <div class="id-title">Access denied</div>
@@ -13,11 +18,6 @@
     </div>
 
     <section v-else class="dashboard-page">
-      <header class="hero">
-        <h1>Doctor Dashboard</h1>
-        <p>Welcome back, {{ doctorDisplayName }}</p>
-      </header>
-
       <section class="stats-grid">
         <article class="stat-card">
           <div>
@@ -689,20 +689,19 @@ export default {
 .dashboard-page {
   display: grid;
   gap: 24px;
-  padding: 26px 22px 26px;
+  padding: 24px 22px 26px;
 }
 
-.hero h1 {
+.header-title-block h1 {
   margin: 0;
   font-family: "Sora", sans-serif;
-  font-size: 30px;
+  font-size: 24px;
   font-weight: 700;
-  letter-spacing: -0.02em;
 }
 
-.hero p {
-  margin: 8px 0 0;
-  font-size: 16px;
+.header-title-block p {
+  margin: 0;
+  font-size: 14px;
   color: #6b7280;
 }
 

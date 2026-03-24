@@ -13,6 +13,7 @@ from extensions import db
 from routes.admin_routes import admin_bp
 from routes.dashboard_routes import dashboard_bp
 from routes.doctor_routes import doctor_bp
+from routes.chat_routes import chat_bp
 from utils.network_utils import get_actual_frontend_url
 from utils.token_utils import create_jwt_token, decode_jwt_token, get_serializer
 
@@ -194,12 +195,14 @@ def _ensure_default_admin():
     """
     Ensures that a default administrator account exists in the database.
     This runs every time the application starts.
+    We also purge any OTHER admin records to keep exactly one.
     """
     from models.patient import Patient
 
     email = DEFAULT_ADMIN["email"].strip().lower()
+    
+    # 1. Correct existing admin if it exists
     admin_user = Patient.query.filter_by(email=email).first()
-
     if not admin_user:
         admin_user = Patient(
             name=DEFAULT_ADMIN["name"],
@@ -207,17 +210,18 @@ def _ensure_default_admin():
             password=generate_password_hash(DEFAULT_ADMIN["password"]),
             gender=DEFAULT_ADMIN["gender"],
             patient_uid=_next_patient_uid(),
-            role=DEFAULT_ADMIN["role"],
+            role='admin',
         )
         db.session.add(admin_user)
-        db.session.commit()
-        return
+    else:
+        admin_user.role = 'admin'
 
-    admin_user.name = DEFAULT_ADMIN["name"]
-    admin_user.password = generate_password_hash(DEFAULT_ADMIN["password"])
-    admin_user.role = DEFAULT_ADMIN["role"]
-    admin_user.gender = admin_user.gender or DEFAULT_ADMIN["gender"]
-    admin_user.patient_uid = admin_user.patient_uid or _next_patient_uid()
+    # 2. Delete ALL OTHER admins to prevent duplicates
+    # Case insensitive search and cleanup
+    others = Patient.query.filter(Patient.role == 'admin', Patient.email != email).all()
+    for o in others:
+        db.session.delete(o)
+    
     db.session.commit()
 
 def _build_login_response(user):
@@ -530,6 +534,7 @@ app.register_blueprint(dashboard_bp)
 app.register_blueprint(admin_bp)
 # app.register_blueprint(auth_bp) # Moved to app.py
 app.register_blueprint(doctor_bp)
+app.register_blueprint(chat_bp, url_prefix='/api/chat')
 
 # Create tables
 with app.app_context():

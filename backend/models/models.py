@@ -196,3 +196,36 @@ class PatientReminder(db.Model):
 
     def __repr__(self):
         return f"<PatientReminder patient={self.patient_id} type={self.reminder_type}>"
+
+
+class ChatMessage(db.Model):
+    __tablename__ = "chat_messages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    sender_role = db.Column(db.String(20), nullable=False)   # 'admin' or 'doctor'
+    sender_id = db.Column(db.Integer, nullable=False)       # doctor.id or admin.id (default 1)
+    receiver_role = db.Column(db.String(20), nullable=False) # 'admin' or 'doctor'
+    receiver_id = db.Column(db.Integer, nullable=False)     # doctor.id or admin.id
+    content = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
+
+    def to_dict(self):
+        ts = self.timestamp
+        if isinstance(ts, str):
+            ts_iso = ts if ts.endswith('Z') else ts + 'Z'
+        elif ts:
+            ts_iso = ts.isoformat() + 'Z'
+        else:
+            ts_iso = None
+
+        return {
+            "id": self.id,
+            "sender_role": self.sender_role,
+            "sender_id": self.sender_id,
+            "receiver_role": self.receiver_role,
+            "receiver_id": self.receiver_id,
+            "content": self.content,
+            "timestamp": ts_iso,
+            "is_read": self.is_read
+        }

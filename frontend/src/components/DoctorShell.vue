@@ -36,19 +36,21 @@
         <slot name="header-left" />
         <div class="topbar-right">
         </div>
-      </header>
-
-      <main class="doctor-content">
+      </header><main class="doctor-content">
         <slot />
       </main>
     </div>
+    
+    <FloatingChat v-if="doctorId" role="doctor" :userId="doctorId" />
   </div>
 </template>
 
 <script>
 import api from "@/services/interceptor"
+import FloatingChat from "@/components/FloatingChat.vue"
 
 export default {
+  components: { FloatingChat },
   props: {
     active: {
       type: String,
@@ -167,6 +169,11 @@ export default {
   font-weight: 600;
 }
 
+.nav-link {
+  position: relative;
+}
+
+
 .doctor-main {
   min-width: 0;
   flex: 1;
@@ -238,6 +245,11 @@ export default {
 
 .doctor-content {
   padding: 0;
+  margin: 0;
+}
+
+.doctor-content > * {
+  margin-top: 0 !important;
 }
 
 @media (max-width: 960px) {

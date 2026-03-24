@@ -7,7 +7,7 @@ import ResetPasswordView from '@/views/ResetPassword.vue'
 import ResetInfoView from '@/views/ResetInfo.vue'
 
 import PatientDashboardView from '@/views/PatientDashboard.vue'
-import AdminView from '@/views/admin.vue'
+import AdminView from '@/views/Admin.vue'
 import DoctorDashboardView from '@/views/DoctorDashboard.vue'
 
 import DoctorSetPasswordView from '@/views/DoctorSetPassword.vue'

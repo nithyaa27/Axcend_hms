@@ -5,7 +5,15 @@
     :doctor-name="doctorDisplayName"
     @profile="showProfileModal = true"
   >
-    <template #header-left />
+    <template #header-left>
+      <div class="header-title-block">
+        <a :href="`/doctor?doctorId=${doctorId}`" class="back-link">
+          <i class="bi bi-arrow-left"></i>
+          <span>Back to Dashboard</span>
+        </a>
+        <p class="page-intro">View and manage appointment information</p>
+      </div>
+    </template>
 
     <div v-if="!doctorId" class="id-banner">
       <div class="id-title">Access denied</div>
@@ -13,14 +21,6 @@
     </div>
 
     <section v-else class="detail-page">
-      <div class="page-header">
-        <a :href="`/doctor?doctorId=${doctorId}`" class="back-link">
-          <i class="bi bi-arrow-left"></i>
-          <span>Back to Dashboard</span>
-        </a>
-        <p class="page-intro">View and manage appointment information</p>
-      </div>
-
       <section class="detail-grid" v-if="appointment && patient">
         <article class="info-card">
           <h2>Patient Information</h2>
@@ -93,11 +93,9 @@
         <div class="treatment-head">
           <h2>Treatment Information</h2>
           <button
-            v-if="!showForm"
+            v-if="!showForm && appointment.status !== 'not_attended' && appointment.status !== 'booked'"
             type="button"
             class="primary-btn"
-            :class="{ 'disabled-style': appointment.status === 'booked' }"
-            :disabled="appointment.status === 'booked'"
             @click="openTreatmentForm"
           >
             {{ (treatment || appointment.can_edit_treatment) ? "Edit Treatment" : "Add Treatment" }}
@@ -323,11 +321,17 @@ export default {
 .detail-page {
   display: grid;
   gap: 22px;
-  padding: 2px 22px 26px;
+  padding: 24px 22px 26px;
 }
 
-.page-header {
-  margin-bottom: 8px;
+.header-title-block .back-link {
+  margin-bottom: 2px;
+}
+
+.header-title-block .page-intro {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
 }
 
 .back-link {
@@ -347,12 +351,6 @@ export default {
 
 .back-link:hover {
   opacity: 0.8;
-}
-
-.page-intro {
-  margin: 0;
-  color: #4b5563;
-  font-size: 15px;
 }
 
 .detail-grid {
