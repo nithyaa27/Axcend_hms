@@ -756,7 +756,9 @@ HMS City Hospital
         send_patient_reminder_email(target_doctor.email, subject_doctor, body_doctor)
 
     # Send email notification to admin
-    admin_email = "nithyatm2709@gmail.com" 
+    from models.admin import Admin
+    admin_user = Admin.query.first()
+    admin_email = admin_user.email if admin_user else "nithyatm2709@gmail.com" 
     subject_admin = "Appointment Transfer Alert - HMS City Hospital"
     body_admin = f"""
 Attention Admin,

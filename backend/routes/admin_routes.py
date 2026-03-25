@@ -55,7 +55,8 @@ def require_admin():
     return None
 
 
-def _email_used_anywhere(email, exclude_doctor_id=None, exclude_patient_id=None):
+def _email_used_anywhere(email, exclude_doctor_id=None, exclude_patient_id=None, exclude_admin_id=None):
+    from models.admin import Admin
     doctor_query = Doctor.query.filter(db.func.lower(Doctor.email) == email.lower())
     if exclude_doctor_id is not None:
         doctor_query = doctor_query.filter(Doctor.id != exclude_doctor_id)
@@ -63,8 +64,12 @@ def _email_used_anywhere(email, exclude_doctor_id=None, exclude_patient_id=None)
     patient_query = Patient.query.filter(db.func.lower(Patient.email) == email.lower())
     if exclude_patient_id is not None:
         patient_query = patient_query.filter(Patient.id != exclude_patient_id)
+        
+    admin_query = Admin.query.filter(db.func.lower(Admin.email) == email.lower())
+    if exclude_admin_id is not None:
+        admin_query = admin_query.filter(Admin.id != exclude_admin_id)
 
-    return doctor_query.first() is not None or patient_query.first() is not None
+    return doctor_query.first() is not None or patient_query.first() is not None or admin_query.first() is not None
 
 
 @admin_bp.route("/api/admin/dashboard", methods=["GET"])

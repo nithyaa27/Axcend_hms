@@ -10,6 +10,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from sqlalchemy import text
 from extensions import db
+from models.admin import Admin
 from routes.admin_routes import admin_bp
 from routes.dashboard_routes import dashboard_bp
 from routes.doctor_routes import doctor_bp
@@ -85,6 +86,9 @@ def load_user_from_token():
         if role == "doctor":
             from models.models import Doctor
             g.user = db.session.get(Doctor, user_id)
+        elif role == "admin":
+            from models.admin import Admin
+            g.user = db.session.get(Admin, user_id)
         else:
             from models.patient import Patient
             g.user = db.session.get(Patient, user_id)
@@ -193,36 +197,37 @@ def _next_patient_uid():
 
 def _ensure_default_admin():
     """
-    Ensures that a default administrator account exists in the database.
-    This runs every time the application starts.
-    We also purge any OTHER admin records to keep exactly one.
+    Ensures that a default administrator account exists in the 'admins' table.
+    Runs on every application start. Migrates any old admin from the Patient table.
     """
+    from models.admin import Admin
     from models.patient import Patient
 
     email = DEFAULT_ADMIN["email"].strip().lower()
-    
-    # 1. Correct existing admin if it exists
-    admin_user = Patient.query.filter_by(email=email).first()
+
+    # 1. Find or create admin in the dedicated Admin table
+    admin_user = Admin.query.filter_by(email=email).first()
     if not admin_user:
-        admin_user = Patient(
+        admin_user = Admin(
             name=DEFAULT_ADMIN["name"],
             email=email,
             password=generate_password_hash(DEFAULT_ADMIN["password"]),
-            gender=DEFAULT_ADMIN["gender"],
-            patient_uid=_next_patient_uid(),
             role='admin',
         )
         db.session.add(admin_user)
-    else:
-        admin_user.role = 'admin'
 
-    # 2. Delete ALL OTHER admins to prevent duplicates
-    # Case insensitive search and cleanup
-    others = Patient.query.filter(Patient.role == 'admin', Patient.email != email).all()
-    for o in others:
+    # 2. Migrate: remove admin record from Patient table if it still exists
+    old_admin = Patient.query.filter_by(email=email, role='admin').first()
+    if old_admin:
+        db.session.delete(old_admin)
+
+    # 3. Remove any other leftover admin records from Patient table
+    other_old = Patient.query.filter(Patient.role == 'admin').all()
+    for o in other_old:
         db.session.delete(o)
-    
+
     db.session.commit()
+    print(f"[Admin] Default admin ready: {email} (ID: {admin_user.id})")
 
 def _build_login_response(user):
     """
@@ -327,10 +332,13 @@ def forgot_password():
 
     from models.patient import Patient
     from models.models import Doctor
+    from models.admin import Admin
 
     user = Patient.query.filter_by(email=email).first()
     if not user:
         user = Doctor.query.filter_by(email=email).first()
+    if not user:
+        user = Admin.query.filter_by(email=email).first()
 
     if not user:
         return jsonify({"status": "error", "message": "Email not registered"}), 404
@@ -385,10 +393,13 @@ def reset_password():
 
     from models.patient import Patient
     from models.models import Doctor
+    from models.admin import Admin
 
     user = Patient.query.filter_by(email=email).first()
     if not user:
         user = Doctor.query.filter_by(email=email).first()
+    if not user:
+        user = Admin.query.filter_by(email=email).first()
 
     if not user:
         return jsonify({"status": "error", "message": "User not found"}), 404
@@ -460,23 +471,30 @@ def login():
 
     from models.patient import Patient
     from models.models import Doctor
+    from models.admin import Admin
 
     user = None
     is_doctor = False
+    is_admin = False
 
     if role_hint == "doctor":
         user = Doctor.query.filter_by(email=email).first()
         is_doctor = True
+    elif role_hint == "admin":
+        user = Admin.query.filter_by(email=email).first()
+        is_admin = True
     else:
-        user = Patient.query.filter_by(email=email).first()
-        is_doctor = False
+        # Try admin first, then patient
+        user = Admin.query.filter_by(email=email).first()
+        if user:
+            is_admin = True
+        else:
+            user = Patient.query.filter_by(email=email).first()
 
     if not user:
-        if role_hint == "doctor":
-            user = Patient.query.filter_by(email=email).first()
-            is_doctor = False
-        else:
-            user = Doctor.query.filter_by(email=email).first()
+        # Fallback: try doctor table
+        user = Doctor.query.filter_by(email=email).first()
+        if user:
             is_doctor = True
 
     if not user:
@@ -486,6 +504,8 @@ def login():
     if is_doctor:
         if getattr(user, 'set_password_status', "") != "password set successfully":
             return jsonify({'status': 'error', 'message': 'Please set your password first'}), 400
+        password_ok = user.check_password(password)
+    elif is_admin:
         password_ok = user.check_password(password)
     else:
         try:

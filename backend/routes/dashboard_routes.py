@@ -557,7 +557,9 @@ def book_appointment():
     db.session.commit()
 
     # Notify Admin about new booking
-    admin_email = "nithyatm2709@gmail.com"
+    from models.admin import Admin
+    admin_user = Admin.query.first()
+    admin_email = admin_user.email if admin_user else "nithyatm2709@gmail.com"
     subject_admin = "New Appointment Booked - HMS City Hospital"
     body_admin = f"""
 Attention Admin,
