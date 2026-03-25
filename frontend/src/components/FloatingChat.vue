@@ -77,7 +77,7 @@ export default {
   },
   mounted() {
     this.checkUnread();
-    this.badgelLoop = setInterval(this.checkUnread, 5000);
+    this.badgelLoop = setInterval(this.checkUnread, 1000);
   },
   beforeUnmount() {
     if (this.badgelLoop) clearInterval(this.badgelLoop);

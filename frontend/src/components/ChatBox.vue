@@ -141,11 +141,11 @@ export default {
       // Update unread count locally for immediate feedback
       conv.unread_count = 0
       
-      // Start polling for this specific conversation
+      // Start polling for this specific conversation (Faster 1s interval)
       if (this.pollInterval) clearInterval(this.pollInterval)
       this.pollInterval = setInterval(() => {
         this.loadMessages(true)
-      }, 3000)
+      }, 1000)
     },
     async loadMessages(silent = false) {
       if (!this.selectedConv) return
@@ -154,9 +154,15 @@ export default {
         const res = await api.get(`/api/chat/history/${this.selectedConv.role}/${this.selectedConv.id}`)
         const newMessages = res.data.messages || []
         
-        // Always update the messages to catch any changes and ensure reactivity
+        // Only scroll to bottom if there are actually new messages
+        const hadNewMessages = newMessages.length > this.messages.length
+        
         this.messages = newMessages
-        if (!silent) this.scrollToBottom()
+        
+        // Auto-scroll if it's the first load or if a new message just arrived
+        if (!silent || hadNewMessages) {
+          this.scrollToBottom()
+        }
       } catch (err) {
         console.error("Chat: failed load history", err)
       } finally {
