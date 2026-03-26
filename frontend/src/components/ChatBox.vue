@@ -50,20 +50,54 @@
             class="msg-bubble-wrapper"
             :class="{ 'mine': isMine(msg) }"
           >
-            <div class="msg-bubble">
-              <p>{{ msg.content }}</p>
+            <div 
+              class="msg-bubble" 
+              :class="{ 'is-image': msg.content && msg.content.startsWith('data:image/') }"
+            >
+              <template v-if="msg.content && msg.content.startsWith('data:image/')">
+                <img :src="msg.content" class="chat-image" alt="Attachment" @click="viewImage(msg.content)" />
+              </template>
+              <template v-else>
+                <p>{{ msg.content }}</p>
+              </template>
               <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
             </div>
           </div>
         </main>
 
+        <div v-if="pendingImage" class="image-preview-area">
+          <div class="preview-box">
+            <img :src="pendingImage" alt="Preview" />
+            <button @click="removePendingImage" class="remove-btn"><i class="bi bi-x-circle-fill"></i></button>
+          </div>
+        </div>
+
         <footer class="input-bar">
+          <div class="attachment-wrapper">
+            <button class="attach-btn" @click="toggleAttachMenu" :disabled="sending">
+              <i class="bi bi-plus-lg"></i>
+            </button>
+            <div v-if="showAttachMenu" class="attach-popup">
+              <button class="popup-item" @click="triggerFileUpload">
+                <i class="bi bi-image"></i>
+                <span>Media</span>
+              </button>
+            </div>
+            <input 
+              type="file" 
+              ref="fileInput" 
+              accept="image/*" 
+              style="display: none" 
+              @change="handleFileUpload"
+            />
+          </div>
           <input 
             v-model="newMessage" 
             placeholder="Type your message..." 
             @keyup.enter="send"
+            :disabled="!!pendingImage"
           />
-          <button @click="send" :disabled="!newMessage.trim() || sending">
+          <button class="send-btn" @click="send" :disabled="(!newMessage.trim() && !pendingImage) || sending">
             <i v-if="!sending" class="bi bi-send-fill"></i>
             <div v-else class="btn-spinner"></div>
           </button>
@@ -104,6 +138,8 @@ export default {
       selectedConv: null,
       messages: [],
       newMessage: '',
+      pendingImage: null,
+      showAttachMenu: false,
       loadingMessages: false,
       loadingConversations: false,
       sending: false,
@@ -174,17 +210,61 @@ export default {
       if (!list) return true
       return list.scrollHeight - list.scrollTop <= list.clientHeight + 100
     },
+    toggleAttachMenu() {
+      this.showAttachMenu = !this.showAttachMenu;
+    },
+    triggerFileUpload() {
+      this.showAttachMenu = false;
+      this.$refs.fileInput.click();
+    },
+    handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      if (file.size > 500 * 1024) {
+        alert("Image size should be within 500KB.");
+        event.target.value = null; // reset
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        this.pendingImage = e.target.result;
+      };
+      reader.readAsDataURL(file);
+      event.target.value = null; // reset
+    },
+    removePendingImage() {
+      this.pendingImage = null;
+    },
+    viewImage(url) {
+      const w = window.open("");
+      if (w) w.document.write(`<img src="${url}" style="max-width: 100%; max-height: 100%;" />`);
+    },
     async send() {
-      if (!this.newMessage.trim() || this.sending || !this.selectedConv) return
+      if ((!this.newMessage.trim() && !this.pendingImage) || this.sending || !this.selectedConv) return
       this.sending = true
       try {
-        const payload = {
-          receiver_role: this.selectedConv.role,
-          receiver_id: this.selectedConv.id,
-          content: this.newMessage
+        if (this.pendingImage) {
+          const imgPayload = {
+            receiver_role: this.selectedConv.role,
+            receiver_id: this.selectedConv.id,
+            content: this.pendingImage
+          }
+          await api.post('/api/chat/send', imgPayload)
+          this.pendingImage = null
         }
-        await api.post('/api/chat/send', payload)
-        this.newMessage = ''
+        
+        if (this.newMessage.trim()) {
+          const txtPayload = {
+            receiver_role: this.selectedConv.role,
+            receiver_id: this.selectedConv.id,
+            content: this.newMessage
+          }
+          await api.post('/api/chat/send', txtPayload)
+          this.newMessage = ''
+        }
+        
         await this.loadMessages(true)
         this.loadConversations(true)
         this.scrollToBottom()
@@ -390,10 +470,21 @@ export default {
   box-shadow: 0 2px 4px rgba(0,0,0,0.02);
 }
 
+.msg-bubble.is-image {
+  background: transparent;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+}
+
 .mine .msg-bubble {
   background: #2563eb;
   color: white;
   border: none;
+}
+
+.mine .msg-bubble.is-image {
+  background: transparent;
 }
 
 .msg-bubble p {
@@ -414,11 +505,21 @@ export default {
   text-align: right;
 }
 
+.msg-bubble.is-image .msg-time {
+  padding: 0 4px;
+}
+
+.mine .msg-bubble.is-image .msg-time {
+  color: #9ca3af;
+}
+
 .input-bar {
   padding: 20px 24px;
   display: flex;
   gap: 12px;
   border-top: 1px solid #f0f0f0;
+  align-items: center;
+  position: relative;
 }
 
 .input-bar input {
@@ -429,16 +530,128 @@ export default {
   outline: none;
 }
 
-.input-bar button {
+.input-bar button.send-btn, .attach-btn {
   width: 48px;
   height: 48px;
-  background: #2563eb;
   color: white;
   border: none;
   border-radius: 12px;
   cursor: pointer;
   display: grid;
   place-items: center;
+}
+
+.send-btn {
+  background: #2563eb;
+}
+
+.send-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.attach-btn {
+  background: #f3f4f6;
+  color: #4b5563;
+  transition: all 0.2s;
+}
+
+.attach-btn:hover {
+  background: #e5e7eb;
+}
+
+.attachment-wrapper {
+  position: relative;
+}
+
+.attach-popup {
+  position: absolute;
+  bottom: 60px;
+  left: 0;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  padding: 8px;
+  z-index: 100;
+  min-width: 120px;
+}
+
+.popup-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #374151;
+  transition: background 0.2s;
+}
+
+.popup-item:hover {
+  background: #f3f4f6;
+}
+
+.image-preview-area {
+  padding: 10px 24px;
+  background: #f9fafb;
+}
+
+.preview-box {
+  position: relative;
+  display: inline-block;
+}
+
+.preview-box img {
+  max-width: 150px;
+  max-height: 150px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  object-fit: cover;
+}
+
+.remove-btn {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  background: white;
+  color: #ef4444;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.remove-btn:hover {
+  background: #fef2f2;
+}
+
+.chat-image {
+  max-width: 250px;
+  max-height: 250px;
+  border-radius: 16px;
+  cursor: pointer;
+  object-fit: contain;
+  border: 1px solid #e5e7eb;
+  background: white;
+  padding: 4px;
+}
+
+.mine .is-image .chat-image {
+  border: 2px solid #2563eb;
+  background: #eff6ff;
 }
 
 .no-selection {

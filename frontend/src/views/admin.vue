@@ -442,7 +442,7 @@
               Resend Password Link
             </button>
           </div>
-          <div class="flex gap-2">
+          <div style="display: flex; gap: 16px;">
             <button class="btn-ghost" @click="showDoctorModal = false">Cancel</button>
             <button class="btn-primary" @click="saveDoctor">Save Doctor</button>
           </div>

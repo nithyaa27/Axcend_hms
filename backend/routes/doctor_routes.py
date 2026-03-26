@@ -68,31 +68,7 @@ def _auto_cancel_missed_booked_for_doctor(doctor_id):
 
 
 def _get_reference_date(doctor_id):
-    today = datetime.now().date()
-    ordered_rows = (
-        Appointment.query.filter(
-            Appointment.doctor_id == doctor_id,
-            Appointment.status != AppointmentStatus.CANCELLED,
-        )
-        .order_by(Appointment.appointment_datetime.asc())
-        .all()
-    )
-    if not ordered_rows:
-        return today
-
-    for appt in ordered_rows:
-        appt_date = appt.appointment_datetime.date()
-        if appt_date >= today:
-            return today
-
-    future_booked = next(
-        (appt for appt in ordered_rows if appt.status == AppointmentStatus.BOOKED),
-        None,
-    )
-    if future_booked:
-        return future_booked.appointment_datetime.date()
-
-    return ordered_rows[0].appointment_datetime.date()
+    return datetime.now().date()
 
 
 def _serialize_appointment(appt, rx, now_local):

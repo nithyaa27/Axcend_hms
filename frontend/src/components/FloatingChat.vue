@@ -142,7 +142,7 @@ export default {
 /* The Window */
 .chat-window {
   background: white;
-  width: 400px;
+  width: 500px;
   height: 600px;
   border-radius: 16px;
   box-shadow: 0 8px 30px rgba(0,0,0,0.15);

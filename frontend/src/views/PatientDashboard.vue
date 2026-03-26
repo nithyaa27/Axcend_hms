@@ -806,7 +806,7 @@ onMounted(() => {
               <div class="avatar" :class="avatarColor(p.doctor)">{{ (p.doctor || '?')[0] }}</div>
               <div class="apt-info">
                 <div class="apt-name">{{ p.diagnosis }}</div>
-                <div class="apt-meta">Dr. {{ p.doctor }} • Prescribed on {{ p.prescribed_on || 'N/A' }}</div>
+                <div class="apt-meta">{{ p.doctor }} • Prescribed on {{ p.prescribed_on || 'N/A' }}</div>
               </div>
               <span class="apt-badge" :class="rxStatusClass(p.status)">{{ p.status }}</span>
             </div>

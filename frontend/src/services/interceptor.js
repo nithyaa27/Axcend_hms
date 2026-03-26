@@ -24,10 +24,12 @@ api.interceptors.response.use(
   (err) => {
     const role = localStorage.getItem('role')
 
+    const isLoginRequest = err.config && err.config.url && err.config.url.includes('/login');
+
     if (
       err.response &&
       err.response.status === 401 &&
-      role === 'patient' && // Added to scope session expiry to patients only
+      !isLoginRequest &&
       !sessionExpiredHandled
     ) {
       sessionExpiredHandled = true
