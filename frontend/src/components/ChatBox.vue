@@ -52,10 +52,13 @@
           >
             <div 
               class="msg-bubble" 
-              :class="{ 'is-image': msg.content && msg.content.startsWith('data:image/') }"
+              :class="{ 'is-image': msg.content && (msg.content.startsWith('data:image/') || msg.content.startsWith('data:video/')) }"
             >
               <template v-if="msg.content && msg.content.startsWith('data:image/')">
                 <img :src="msg.content" class="chat-image" alt="Attachment" @click="viewImage(msg.content)" />
+              </template>
+              <template v-else-if="msg.content && msg.content.startsWith('data:video/')">
+                <video :src="msg.content" class="chat-image" controls></video>
               </template>
               <template v-else>
                 <p>{{ msg.content }}</p>
@@ -65,10 +68,15 @@
           </div>
         </main>
 
-        <div v-if="pendingImage" class="image-preview-area">
+        <div v-if="pendingMedia" class="image-preview-area">
           <div class="preview-box">
-            <img :src="pendingImage" alt="Preview" />
-            <button @click="removePendingImage" class="remove-btn"><i class="bi bi-x-circle-fill"></i></button>
+            <template v-if="pendingMedia.startsWith('data:video/')">
+              <video :src="pendingMedia" style="max-height: 150px; max-width: 150px; border-radius: 12px;" controls></video>
+            </template>
+            <template v-else>
+              <img :src="pendingMedia" alt="Preview" />
+            </template>
+            <button @click="removePendingMedia" class="remove-btn"><i class="bi bi-x-circle-fill"></i></button>
           </div>
         </div>
 
@@ -86,7 +94,7 @@
             <input 
               type="file" 
               ref="fileInput" 
-              accept="image/*" 
+              accept="image/*,video/*" 
               style="display: none" 
               @change="handleFileUpload"
             />
@@ -95,9 +103,9 @@
             v-model="newMessage" 
             placeholder="Type your message..." 
             @keyup.enter="send"
-            :disabled="!!pendingImage"
+            :disabled="!!pendingMedia"
           />
-          <button class="send-btn" @click="send" :disabled="(!newMessage.trim() && !pendingImage) || sending">
+          <button class="send-btn" @click="send" :disabled="(!newMessage.trim() && !pendingMedia) || sending">
             <i v-if="!sending" class="bi bi-send-fill"></i>
             <div v-else class="btn-spinner"></div>
           </button>
@@ -138,7 +146,7 @@ export default {
       selectedConv: null,
       messages: [],
       newMessage: '',
-      pendingImage: null,
+      pendingMedia: null,
       showAttachMenu: false,
       loadingMessages: false,
       loadingConversations: false,
@@ -221,38 +229,41 @@ export default {
       const file = event.target.files[0];
       if (!file) return;
 
-      if (file.size > 500 * 1024) {
-        alert("Image size should be within 500KB.");
+      const isVideo = file.type.startsWith('video/');
+      const maxSize = isVideo ? 5 * 1024 * 1024 : 500 * 1024;
+
+      if (file.size > maxSize) {
+        alert(isVideo ? "Video size should be within 5MB." : "Image size should be within 500KB.");
         event.target.value = null; // reset
         return;
       }
 
       const reader = new FileReader();
       reader.onload = (e) => {
-        this.pendingImage = e.target.result;
+        this.pendingMedia = e.target.result;
       };
       reader.readAsDataURL(file);
       event.target.value = null; // reset
     },
-    removePendingImage() {
-      this.pendingImage = null;
+    removePendingMedia() {
+      this.pendingMedia = null;
     },
     viewImage(url) {
       const w = window.open("");
       if (w) w.document.write(`<img src="${url}" style="max-width: 100%; max-height: 100%;" />`);
     },
     async send() {
-      if ((!this.newMessage.trim() && !this.pendingImage) || this.sending || !this.selectedConv) return
+      if ((!this.newMessage.trim() && !this.pendingMedia) || this.sending || !this.selectedConv) return
       this.sending = true
       try {
-        if (this.pendingImage) {
+        if (this.pendingMedia) {
           const imgPayload = {
             receiver_role: this.selectedConv.role,
             receiver_id: this.selectedConv.id,
-            content: this.pendingImage
+            content: this.pendingMedia
           }
           await api.post('/api/chat/send', imgPayload)
-          this.pendingImage = null
+          this.pendingMedia = null
         }
         
         if (this.newMessage.trim()) {
